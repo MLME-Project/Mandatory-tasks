@@ -71,19 +71,29 @@ def generate_samples_per_scale(n: int, bounds: list[tuple[float, float]]) -> lis
 def build_samples_per_scale(samples_per_scale: int | None, total_samples: int | None) -> dict[str, int]:
     """Build a sample count dictionary for the three reactor scales."""
     scales = ["micro", "bench", "pilot"]
-    if samples_per_scale:
+    if samples_per_scale is not None and total_samples is not None:
+        print("Hinweis: both samples_per_scale and total_samples are set; using total_samples to distribute samples.")
+        samples_per_scale = None
+
+    if samples_per_scale is not None:
         return {s: samples_per_scale for s in scales}
-    if total_samples:
+    if total_samples is not None:
         base = total_samples // len(scales)
         rem = total_samples % len(scales)
         return {s: base + (1 if i < rem else 0) for i, s in enumerate(scales)}
     return {"micro": 30, "bench": 30, "pilot": 30}
 
 
-def run_sampling(client: BioreactorClient, samples_per_scale: dict[str, int], repeats: int = 1) -> list[dict]:
-    """Run sampling for each scale and return the collected experiment results."""
+def run_sampling(client: BioreactorClient, samples_per_scale: dict[str, int], repeats: int = 1,
+                 bounds: list[tuple[float, float]] | None = None) -> list[dict]:
+    """Run sampling for each scale and return the collected experiment results.
+
+    The optional `bounds` parameter allows overriding the default parameter ranges
+    for the Latin Hypercube sampling.
+    """
     # Define the allowed ranges for each parameter.
-    bounds = [(20.0, 60.0), (3.0, 9.5), (0.0, 2.0), (0.0, 2.0), (0.0, 2.0)]
+    if bounds is None:
+        bounds = [(20.0, 60.0), (3.0, 9.5), (0.0, 2.0), (0.0, 2.0), (0.0, 2.0)]
     results: list[dict] = []
 
     # Iterate through each reactor scale and generate its samples.
