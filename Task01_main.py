@@ -66,9 +66,9 @@ class Task01Config:
 # Bearbeite hier nur `samples_per_scale` und `repeats`.
 # ---------------------------------------------------------------------------
 USER_CONFIG = Task01Config(
-    samples_per_scale=400,  # int or None
-    repeats=5,
-    sampling_mode="lhs",  # "lhs" or "random"
+    samples_per_scale=1000,  # int or None
+    repeats=2,
+    sampling_mode="random",  # "lhs" or "random"
     # Temperature bounds
     t_min=20.0,
     t_max=60.0,
@@ -84,8 +84,8 @@ USER_CONFIG = Task01Config(
     f3_max=2.0,
     # Visualization and bucketing
     visualize=True,
-    t_bins=8,
-    ph_bins=8,
+    t_bins=4,
+    ph_bins=4,
     out_path=None,
     save=True,
 )

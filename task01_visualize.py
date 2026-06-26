@@ -43,6 +43,7 @@ def visualize_task01_results(results: list[dict], t_bins: int = 8, ph_bins: int 
     """
     try:
         import matplotlib.pyplot as plt
+        import matplotlib.colors as mcolors  # Hinzugefügt für die Skalierung
     except ImportError:
         print("Matplotlib ist nicht installiert. Installiere es mit: pip install matplotlib")
         return
@@ -105,9 +106,14 @@ def visualize_task01_results(results: list[dict], t_bins: int = 8, ph_bins: int 
                 return idx
         return len(edges) - 2
 
-    quality_values = [s["quality"] for s in valid_samples]
-    quality_min = min(quality_values)
-    quality_max = max(quality_values)
+    # Determine quality ranges for each scale separately so each plot gets its own color scale.
+    scale_quality_ranges: dict[str, tuple[float, float] | None] = {}
+    for scale in ["micro", "bench", "pilot"]:
+        quality_values = [s["quality"] for s in valid_samples if s["scale"] == scale]
+        if quality_values:
+            scale_quality_ranges[scale] = (min(quality_values), max(quality_values))
+        else:
+            scale_quality_ranges[scale] = None
 
     # Create the bin structure once for all scales
     binned_samples: dict[str, dict[tuple[int, int], list[dict]]] = {"micro": {}, "bench": {}, "pilot": {}}
@@ -124,6 +130,16 @@ def visualize_task01_results(results: list[dict], t_bins: int = 8, ph_bins: int 
         fig, axes = plt.subplots(ph_bins, t_bins, figsize=(12, 12), squeeze=False)
         fig.suptitle(f"Task01: {scale.capitalize()}-Scale Dreiecksdiagramme", fontsize=16)
         figure_scatter = None
+        scale_range = scale_quality_ranges[scale]
+        if scale_range is not None:
+            scale_vmin, scale_vmax = scale_range
+        else:
+            scale_vmin, scale_vmax = 0.0, 1.0
+
+        # Hier definieren wir die PowerNorm. Gamma=0.5 zieht die Farbskala 
+        # so auseinander, dass Unterschiede im unteren Bereich deutlicher werden.
+        # Wenn nötig, kannst du gamma auf 0.3 oder 0.4 anpassen, wenn es noch extremer sein soll.
+        norm = mcolors.PowerNorm(gamma=0.2, vmin=scale_vmin, vmax=scale_vmax)
 
         for ph_idx in range(ph_bins):
             for t_idx in range(t_bins):
@@ -151,9 +167,8 @@ def visualize_task01_results(results: list[dict], t_bins: int = 8, ph_bins: int 
                                 xs,
                                 ys,
                                 c=qualities,
-                                cmap="viridis",
-                                vmin=quality_min,
-                                vmax=quality_max,
+                                cmap="rainbow",  # Der echte Regenbogen von Lila bis Rot
+                                norm=norm,       # Verwendet unsere gestreckte Skalierung anstatt vmin/vmax
                                 s=25,
                                 edgecolors="black",
                                 linewidths=0.2,
@@ -163,9 +178,8 @@ def visualize_task01_results(results: list[dict], t_bins: int = 8, ph_bins: int 
                                 xs,
                                 ys,
                                 c=qualities,
-                                cmap="viridis",
-                                vmin=quality_min,
-                                vmax=quality_max,
+                                cmap="rainbow",
+                                norm=norm,
                                 s=25,
                                 edgecolors="black",
                                 linewidths=0.2,
