@@ -21,7 +21,7 @@ class BioreactorClient:
         self.s = requests.Session()
         self.base = base_url.rstrip("/")
 
-    def login(self, user: str, password: str) -> None:
+    def login(self, user: str=USER, password: str=PASSWORD) -> None:
         r = self.s.post(
             f"{self.base}/api/login",
             json={"user": user, "password": password},
