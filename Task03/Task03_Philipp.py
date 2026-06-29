@@ -15,7 +15,10 @@ from scipy.stats import qmc, norm
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import Matern, WhiteKernel
 from sklearn.preprocessing import StandardScaler
+import warnings
+from sklearn.exceptions import ConvergenceWarning
 
+warnings.filterwarnings("ignore", category=ConvergenceWarning)
 # ---------------------------------------------------------------------------
 # Import API client from parent directory
 # ---------------------------------------------------------------------------
@@ -121,6 +124,13 @@ def sample_candidates(n: int, seed: int) -> tuple[np.ndarray, list[str]]:
     return recipes, scales
 
 
+def parse_result(result: dict) -> tuple[float, float]:
+    """Extract Y and cost from the API response in a backward-compatible way."""
+    y = float(result["Y"])
+    cost = result.get("cost", result.get("cost_eur", 0.0))
+    return y, float(cost)
+
+
 # ---------------------------------------------------------------------------
 # Main BO loop
 # ---------------------------------------------------------------------------
@@ -152,8 +162,7 @@ def run_bo():
               f"T={T:.1f} pH={pH:.2f} F1={F1:.2f} F2={F2:.2f} F3={F3:.2f}",
               end="  →  ", flush=True)
         result = client.run(scale, T, pH, F1, F2, F3)
-        y    = float(result["Y"])
-        cost = float(result["cost"])
+        y, cost = parse_result(result)
         print(f"Y={y:.3f} g/L  cost={cost:.1f} EUR")
 
         all_recipes.append(recipe)
@@ -216,8 +225,7 @@ def run_bo():
 
         # --- Run experiment ---
         result = client.run(next_scale, T, pH, F1, F2, F3)
-        y    = float(result["Y"])
-        cost = float(result["cost"])
+        y, cost = parse_result(result)
         print(f"Y={y:.3f} g/L  cost={cost:.1f} EUR")
 
         all_recipes.append(next_recipe)
