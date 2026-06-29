@@ -1,0 +1,33 @@
+1. INITIALISIERUNG
+   - Latin Hypercube Sampling über [T, pH, F1, F2, F3] × {micro, bench, pilot}
+   - n_init Experimente ausführen (API-Calls)
+   - Daten sammeln: X (Rezepte), S (Scale), Y (Beobachtungen), C (Kosten)
+
+2. SURROGATE MODEL (GP)
+   - Input: [T, pH, F1, F2, F3, scale_encoded] → 6D
+   - Scale als ordinale Variable (0/1/2) oder One-Hot kodieren
+   - Ein gemeinsamer GP über alle Scales (Multi-Fidelity)
+     ODER drei unabhängige GPs (einer pro Scale) — ersteres bevorzugt
+   - GP fitten auf alle bisherigen Beobachtungen
+
+3. ACQUISITION FUNCTION: Cost-Normalized EI
+   - Standard EI am Punkt x, scale s:
+       EI(x, s) = E[max(f(x,s) - f_best, 0)]
+   - Normierung:
+       EI_normalized(x, s) = EI(x, s) / cost(s)
+   - f_best = bestes bisher beobachtetes **Pilot**-Y
+     (oder bestes Y über alle Scales — Designentscheidung)
+
+4. BO-LOOP (for i in range(n_iterations)):
+   a. GP auf allen bisherigen Daten trainieren
+   b. EI_normalized über dichtem Grid oder via Optimizer maximieren
+      → für jede Kombination (x_candidate, scale) auswerten
+   c. Bestes (x*, s*) auswählen
+   d. Experiment ausführen: API-Call mit (x*, s*)
+   e. Daten anhängen: X, S, Y, C aktualisieren
+   f. Abbruchbedingung: Budget erschöpft?
+
+5. ERGEBNIS
+   - Bestes Pilot-Y aus allen Pilot-Experimenten
+   - Gesamtkosten
+   - Trajektorie: best_pilot_Y und cumulative_cost pro Iteration
