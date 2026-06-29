@@ -139,7 +139,7 @@ def visualize_task01_results(results: list[dict], t_bins: int = 8, ph_bins: int 
         # Hier definieren wir die PowerNorm. Gamma=0.5 zieht die Farbskala 
         # so auseinander, dass Unterschiede im unteren Bereich deutlicher werden.
         # Wenn nötig, kannst du gamma auf 0.3 oder 0.4 anpassen, wenn es noch extremer sein soll.
-        norm = mcolors.PowerNorm(gamma=0.2, vmin=scale_vmin, vmax=scale_vmax)
+        norm = mcolors.PowerNorm(gamma=0.8, vmin=scale_vmin, vmax=scale_vmax)
 
         for ph_idx in range(ph_bins):
             for t_idx in range(t_bins):
@@ -160,6 +160,7 @@ def visualize_task01_results(results: list[dict], t_bins: int = 8, ph_bins: int 
                     ]
                     coords = [(c, q) for c, q in coords if c is not None]
                     if coords:
+                        coords = sorted(coords, key=lambda item: item[1])  # aufsteigend → hohe Werte zuletzt = oben
                         xs, ys = zip(*[c for c, _ in coords])
                         qualities = [q for _, q in coords]
                         if figure_scatter is None:
