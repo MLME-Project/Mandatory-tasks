@@ -160,6 +160,7 @@ def visualize_task01_results(results: list[dict], t_bins: int = 8, ph_bins: int 
                     ]
                     coords = [(c, q) for c, q in coords if c is not None]
                     if coords:
+                        coords.sort(key=lambda item: item[1])  # niedrigste zuerst, höchste zuletzt
                         xs, ys = zip(*[c for c, _ in coords])
                         qualities = [q for _, q in coords]
                         if figure_scatter is None:
