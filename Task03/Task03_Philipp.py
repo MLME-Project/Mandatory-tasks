@@ -40,12 +40,13 @@ BOUNDS = np.array([
 ])
 
 SCALES        = ["micro", "bench", "pilot"]
+ACTIVE_SCALES = ["micro", "bench"]
 SCALE_ENCODE  = {"micro": 0, "bench": 1, "pilot": 2}   # ordinal encoding
 
 N_INIT        = 15      # LHS initialization experiments
 N_CANDIDATES  = 2000    # random candidates evaluated per BO iteration
 TARGET_Y      = 14.0    # stop when best pilot-Y exceeds this [g/L]
-MAX_ITER      = 200     # hard safety cap
+MAX_ITER      = 50     # hard safety cap
 
 
 # ---------------------------------------------------------------------------
@@ -114,13 +115,14 @@ def fit_gp(X_train: np.ndarray, y_train: np.ndarray,
 
 def sample_candidates(n: int, seed: int) -> tuple[np.ndarray, list[str]]:
     """
-    Draw n random candidates uniformly from the recipe space × all scales.
+    Draw n random candidates uniformly from the recipe space and only use
+    the cheaper scales micro/bench during BO.
     """
     rng       = np.random.default_rng(seed)
     unit      = rng.uniform(size=(n, 5))
     recipes   = BOUNDS[:, 0] + unit * (BOUNDS[:, 1] - BOUNDS[:, 0])
-    scale_idx = rng.integers(0, len(SCALES), size=n)
-    scales    = [SCALES[i] for i in scale_idx]
+    scale_idx = rng.integers(0, len(ACTIVE_SCALES), size=n)
+    scales    = [ACTIVE_SCALES[i] for i in scale_idx]
     return recipes, scales
 
 
@@ -146,9 +148,10 @@ def run_bo():
     all_Y:       list[float]      = []
     all_costs:   list[float]      = []
 
-    best_pilot_Y    = -np.inf
+    best_observed_y = -np.inf
+    best_recipe: np.ndarray | None = None
     cumulative_cost = 0.0
-    trajectory      = []   # (iteration, best_pilot_Y, cumulative_cost)
+    trajectory      = []   # (iteration, best_observed_y, cumulative_cost)
 
     # -----------------------------------------------------------------------
     # 1. INITIALIZATION via LHS
@@ -171,10 +174,11 @@ def run_bo():
         all_costs.append(cost)
         cumulative_cost += cost
 
-        if scale == "pilot":
-            best_pilot_Y = max(best_pilot_Y, y)
+        if y > best_observed_y:
+            best_observed_y = y
+            best_recipe = recipe.copy()
 
-    print(f"\nInit done. Best pilot-Y so far: {best_pilot_Y:.3f} g/L | "
+    print(f"\nInit done. Best observed Y so far: {best_observed_y:.3f} g/L | "
           f"Total cost: {cumulative_cost:.1f} EUR\n")
 
     # -----------------------------------------------------------------------
@@ -185,8 +189,8 @@ def run_bo():
     for iteration in range(1, MAX_ITER + 1):
 
         # --- Stop criterion ---
-        if best_pilot_Y >= TARGET_Y:
-            print(f"\n✓ Target reached: best pilot-Y = {best_pilot_Y:.3f} g/L >= {TARGET_Y} g/L")
+        if best_observed_y >= TARGET_Y:
+            print(f"\n✓ Target reached: best observed Y = {best_observed_y:.3f} g/L >= {TARGET_Y} g/L")
             break
 
         # --- Fit GP ---
@@ -196,9 +200,8 @@ def run_bo():
         scaler.fit(X_train)
         gp = fit_gp(X_train, y_train, scaler)
 
-        # f_best: best observed pilot-Y (use global best if no pilot run yet)
-        pilot_Y_vals = [y for y, s in zip(all_Y, all_scales) if s == "pilot"]
-        f_best       = max(pilot_Y_vals) if pilot_Y_vals else max(all_Y)
+        # f_best: best observed Y from the BO runs so far
+        f_best = best_observed_y
 
         # --- Sample candidates and evaluate acquisition ---
         cand_recipes, cand_scales = sample_candidates(N_CANDIDATES, seed=iteration)
@@ -234,28 +237,35 @@ def run_bo():
         all_costs.append(cost)
         cumulative_cost += cost
 
-        if next_scale == "pilot":
-            best_pilot_Y = max(best_pilot_Y, y)
+        if y > best_observed_y:
+            best_observed_y = y
+            best_recipe = next_recipe.copy()
 
-        trajectory.append((iteration, best_pilot_Y, cumulative_cost))
-        print(f"          best pilot-Y: {best_pilot_Y:.3f} g/L | "
+        trajectory.append((iteration, best_observed_y, cumulative_cost))
+        print(f"          best observed Y: {best_observed_y:.3f} g/L | "
               f"total cost: {cumulative_cost:.1f} EUR")
 
     # -----------------------------------------------------------------------
     # 3. RESULTS
     # -----------------------------------------------------------------------
     print("\n=== FINAL RESULTS ===")
-    print(f"Best pilot-Y    : {best_pilot_Y:.3f} g/L")
+    print(f"Best observed Y : {best_observed_y:.3f} g/L")
     print(f"Total cost      : {cumulative_cost:.1f} EUR")
     print(f"Total experiments: {len(all_Y)}")
 
-    # Best recipe found on pilot
-    pilot_indices = [i for i, s in enumerate(all_scales) if s == "pilot"]
-    if pilot_indices:
-        best_pilot_idx = pilot_indices[int(np.argmax([all_Y[i] for i in pilot_indices]))]
-        r = all_recipes[best_pilot_idx]
+    if best_recipe is not None:
+        r = best_recipe
         print(f"Best recipe     : T={r[0]:.2f} pH={r[1]:.2f} "
               f"F1={r[2]:.2f} F2={r[3]:.2f} F3={r[4]:.2f}")
+
+        print("\n=== FINAL PILOT VALIDATION ===")
+        T, pH, F1, F2, F3 = r
+        print(f"Running pilot-scale validation for recipe: T={T:.2f} pH={pH:.2f} "
+              f"F1={F1:.2f} F2={F2:.2f} F3={F3:.2f}")
+        result = client.run("pilot", T, pH, F1, F2, F3)
+        pilot_y, pilot_cost = parse_result(result)
+        print(f"Pilot Y         : {pilot_y:.3f} g/L")
+        print(f"Pilot cost      : {pilot_cost:.1f} EUR")
 
     return trajectory, all_recipes, all_scales, all_Y, all_costs
 
