@@ -32,7 +32,9 @@ N_INITIAL_SAMPLES = 2**5
 
 
 def setupPipeline():
-    rbf = ConstantKernel() * RBF() + WhiteKernel()
+    # σ_signal² · exp(-‖x−x'‖²/2ℓ²) + σ_noise²·δ(x,x')
+    # 5 length scales for automatic relevance determination (ARD)
+    rbf = ConstantKernel() * RBF(length_scale=[1.0]*5) + WhiteKernel()
     gp = GaussianProcessRegressor(kernel=rbf, n_restarts_optimizer=50)
     pipe = Pipeline([
     ('scaler', StandardScaler()),
@@ -85,27 +87,30 @@ def upperConfidenceBound(X, pipeline, kappa=2.0):
 
 if __name__ == "__main__":
     np.random.seed(67)
+
+    # setup experiment
+    SCALE = 'micro'
+    ACQ_FUN = 'ei'
+    ACQ_FUN_VAR = 0.01
+    FILENAME = f'Task03/{SCALE}_data_{ACQ_FUN}({ACQ_FUN_VAR}).csv'
     
     # setup client
     client = BioreactorClient()
     client.login()
 
-    # setup csv
-    FILENAME = 'Task03/micro_data_ucb.csv'
+    #get initial data
+    if not os.path.exists(FILENAME):
+        sampleHypercubeCorners(
+            scale=SCALE, 
+            T_Bounds=T_BOUNDS, 
+            pH_Bounds=pH_BOUNDS, 
+            F1_Bounds=F_BOUNDS, 
+            F2_Bounds=F_BOUNDS, 
+            F3_Bounds=F_BOUNDS, 
+            client=client, 
+            fileName=FILENAME)
 
-    scale = 'micro'
-    #get initial data on
-    sampleHypercubeCorners(
-        scale=scale, 
-        T_Bounds=T_BOUNDS, 
-        pH_Bounds=pH_BOUNDS, 
-        F1_Bounds=F_BOUNDS, 
-        F2_Bounds=F_BOUNDS, 
-        F3_Bounds=F_BOUNDS, 
-        client=client, 
-        fileName=FILENAME)
-
-    # main training loop scale
+    # main training loop
     for i in range(50):
         # get data so far
         df = getDataFrameFromCSV(fileName=FILENAME)
@@ -127,14 +132,19 @@ if __name__ == "__main__":
             np.random.uniform(*F_BOUNDS, n_test),
             np.random.uniform(*F_BOUNDS, n_test),
         ])
-        # acq_test = expectedImprovement(
-        #     X=X_test, 
-        #     pipeline=pipe, 
-        #     y_best=y_best,
-        #     xi=0.1)
-        acq_test = upperConfidenceBound(
-            X=X_test, 
-            pipeline=pipe)
+        if ACQ_FUN == 'ei':
+            acq_test = expectedImprovement(
+                X=X_test, 
+                pipeline=pipe, 
+                y_best=y_best,
+                xi=ACQ_FUN_VAR)
+        elif ACQ_FUN == 'ucb':
+            acq_test = upperConfidenceBound(
+                X=X_test, 
+                pipeline=pipe,
+                kappa=ACQ_FUN_VAR)
+        else:
+            raise NotImplementedError()
         acq_max = np.max(acq_test)
         X_opt = X_test[np.argmax(acq_test)]
 
@@ -148,7 +158,7 @@ if __name__ == "__main__":
         print(f"next point: T={T:.1f} pH={pH:.2f} F1={F1:.2f} F2={F2:.2f} F3={F3:.2f} | acq={acq_max:.3e} | GP: mu={y_mu_max[0]:.3f} sigma={y_sigma_max[0]:.3f}")
         
         # run new experiment
-        result = client.run(scale, T, pH, F1, F2, F3)
-        appendToCSV(FILENAME, scale, T, pH, F1, F2, F3, result)
+        result = client.run(SCALE, T, pH, F1, F2, F3)
+        appendToCSV(FILENAME, SCALE, T, pH, F1, F2, F3, result)
         print(f"measurement: Y = {result['Y']:.3f}")
     
