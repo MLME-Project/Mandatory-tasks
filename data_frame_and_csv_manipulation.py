@@ -40,6 +40,9 @@ def appendToCSV(fileName, scale, T, pH, F1, F2, F3, result):
 def getXyFromDataFrame(df):
     return df[INPUT_COLS].values, df["Y"].values
 
+def getXyFromCSV(fileName):
+    return getXyFromDataFrame(getDataFrameFromCSV(fileName=fileName))
+
 # df = getDataFrameFromClient()
 # df = getDataFrameFromCSV('mlme26_group08_2026-06-29T10-47-17.csv')
 # print(df)
