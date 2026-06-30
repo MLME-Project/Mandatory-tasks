@@ -105,7 +105,7 @@ if __name__ == "__main__":
         client=client, 
         fileName=FILENAME)
 
-    # main training loop on micro scale
+    # main training loop scale
     for i in range(50):
         # get data so far
         df = getDataFrameFromCSV(fileName=FILENAME)
@@ -127,11 +127,14 @@ if __name__ == "__main__":
             np.random.uniform(*F_BOUNDS, n_test),
             np.random.uniform(*F_BOUNDS, n_test),
         ])
-        acq_test = expectedImprovement(
+        # acq_test = expectedImprovement(
+        #     X=X_test, 
+        #     pipeline=pipe, 
+        #     y_best=y_best,
+        #     xi=0.1)
+        acq_test = upperConfidenceBound(
             X=X_test, 
-            pipeline=pipe, 
-            y_best=y_best,
-            xi=0.1)
+            pipeline=pipe)
         acq_max = np.max(acq_test)
         X_opt = X_test[np.argmax(acq_test)]
 
@@ -147,5 +150,5 @@ if __name__ == "__main__":
         # run new experiment
         result = client.run(scale, T, pH, F1, F2, F3)
         appendToCSV(FILENAME, scale, T, pH, F1, F2, F3, result)
-        print(f"measurement: Y = {result['Y']:.3f}\n")
+        print(f"measurement: Y = {result['Y']:.3f}")
     
