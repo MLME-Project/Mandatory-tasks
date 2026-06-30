@@ -18,7 +18,7 @@ pH_BOUNDS = [3, 9.5]
 F_BOUNDS = [0, 2]
 
 # setup csv
-FILENAME = 'micro_data.csv'
+FILENAME = 'Task03/micro_data.csv'
 
 # setup client
 client = BioreactorClient()
