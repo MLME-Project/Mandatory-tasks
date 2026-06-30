@@ -58,63 +58,63 @@ def expectedImprovement(X_candidates, pipeline, y_best, xi=0.01):
 
 
 
-# seed rng
-np.random.seed(67)
+if __name__ == "__main__":
+    np.random.seed(67)
 
-# get initial data on micro scale
-# sampleHypercubeCorners(
-#     scale='micro', 
-#     T_Bounds=T_BOUNDS, 
-#     pH_Bounds=pH_BOUNDS, 
-#     F1_Bounds=F_BOUNDS, 
-#     F2_Bounds=F_BOUNDS, 
-#     F3_Bounds=F_BOUNDS, 
-#     client=client, 
-#     fileName=FILENAME)
+    # get initial data on micro scale
+    # sampleHypercubeCorners(
+    #     scale='micro', 
+    #     T_Bounds=T_BOUNDS, 
+    #     pH_Bounds=pH_BOUNDS, 
+    #     F1_Bounds=F_BOUNDS, 
+    #     F2_Bounds=F_BOUNDS, 
+    #     F3_Bounds=F_BOUNDS, 
+    #     client=client, 
+    #     fileName=FILENAME)
 
-# main training loop on micro scale
-for i in range(100):
-    # get data so far
-    df = getDataFrameFromCSV(fileName=FILENAME)
-    cummulativeCost = np.sum(df["cost_eur"])
-    X, y = getXyFromDataFrame(df)
-    y_best = np.max(y)
+    # main training loop on micro scale
+    for i in range(100):
+        # get data so far
+        df = getDataFrameFromCSV(fileName=FILENAME)
+        cummulativeCost = np.sum(df["cost_eur"])
+        X, y = getXyFromDataFrame(df)
+        y_best = np.max(y)
 
-    # fit gp
-    pipe = setupPipeline()
-    pipe.fit(X, y)
+        # fit gp
+        pipe = setupPipeline()
+        pipe.fit(X, y)
 
-    # sample acquisition function
-    n_test = 100000
-    X_test = np.column_stack([
-        np.random.uniform(*T_BOUNDS, n_test),
-        np.random.uniform(*pH_BOUNDS, n_test),
-        np.random.uniform(*F_BOUNDS, n_test),
-        np.random.uniform(*F_BOUNDS, n_test),
-        np.random.uniform(*F_BOUNDS, n_test),
-    ])
-    acq_test = expectedImprovement(
-        X_candidates=X_test, 
-        pipeline=pipe, 
-        y_best=y_best)
-    acq_max = np.max(acq_test)
-    X_opt = X_test[np.argmax(acq_test)]
+        # sample acquisition function
+        n_test = 100000
+        X_test = np.column_stack([
+            np.random.uniform(*T_BOUNDS, n_test),
+            np.random.uniform(*pH_BOUNDS, n_test),
+            np.random.uniform(*F_BOUNDS, n_test),
+            np.random.uniform(*F_BOUNDS, n_test),
+            np.random.uniform(*F_BOUNDS, n_test),
+        ])
+        acq_test = expectedImprovement(
+            X_candidates=X_test, 
+            pipeline=pipe, 
+            y_best=y_best)
+        acq_max = np.max(acq_test)
+        X_opt = X_test[np.argmax(acq_test)]
 
-    # extract variables
-    scale = "micro"
-    T, pH, F1, F2, F3 = X_opt
+        # extract variables
+        scale = "micro"
+        T, pH, F1, F2, F3 = X_opt
 
-    # prediction on the optimum
-    y_mu_max, y_sigma_max = pipe.predict(
-        np.atleast_2d(X_opt), 
-        return_std=True)
-    
-    # run new experiment
-    result = client.run(scale, T, pH, F1, F2, F3)
-    appendToCSV(FILENAME, scale, T, pH, F1, F2, F3, result)
+        # prediction on the optimum
+        y_mu_max, y_sigma_max = pipe.predict(
+            np.atleast_2d(X_opt), 
+            return_std=True)
+        
+        # run new experiment
+        result = client.run(scale, T, pH, F1, F2, F3)
+        appendToCSV(FILENAME, scale, T, pH, F1, F2, F3, result)
 
-    # print progress
-    print(f"best Y = {y_best:.3f} | cost so far = {cummulativeCost} €")
-    print(f"next point: T={T:.1f} pH={pH:.2f} F1={F1:.2f} F2={F2:.2f} F3={F3:.2f} | acq={acq_max:.3e} | GP: mu={y_mu_max[0]:.3f} sigma={y_sigma_max[0]:.3f}")
-    print(f"measurement: Y = {result['Y']:.3f}\n")
+        # print progress
+        print(f"best Y = {y_best:.3f} | cost so far = {cummulativeCost} €")
+        print(f"next point: T={T:.1f} pH={pH:.2f} F1={F1:.2f} F2={F2:.2f} F3={F3:.2f} | acq={acq_max:.3e} | GP: mu={y_mu_max[0]:.3f} sigma={y_sigma_max[0]:.3f}")
+        print(f"measurement: Y = {result['Y']:.3f}\n")
     
