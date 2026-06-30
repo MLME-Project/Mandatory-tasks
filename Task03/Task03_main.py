@@ -20,10 +20,6 @@ F_BOUNDS = [0, 2]
 # setup csv
 FILENAME = 'Task03/micro_data.csv'
 
-# setup client
-client = BioreactorClient()
-client.login()
-
 
 
 def sampleHypercubeCorners(scale, T_Bounds, pH_Bounds, F1_Bounds, F2_Bounds, F3_Bounds, client, fileName):
@@ -60,6 +56,10 @@ def expectedImprovement(X_candidates, pipeline, y_best, xi=0.01):
 
 if __name__ == "__main__":
     np.random.seed(67)
+    
+    # setup client
+    client = BioreactorClient()
+    client.login()
 
     # get initial data on micro scale
     # sampleHypercubeCorners(
