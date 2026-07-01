@@ -34,7 +34,7 @@ N_INITIAL_SAMPLES = 2**5
 def setupPipeline():
     # σ_signal² · exp(-‖x−x'‖²/2ℓ²) + σ_noise²·δ(x,x')
     # 5 length scales for automatic relevance determination (ARD)
-    rbf = ConstantKernel() * RBF(length_scale=[1.0]*5) + WhiteKernel()
+    rbf = ConstantKernel() * RBF(length_scale=[1.0]*5, bounds=[(1e-5, 3.0)]*5) + WhiteKernel()
     gp = GaussianProcessRegressor(kernel=rbf, n_restarts_optimizer=50)
     pipe = Pipeline([
     ('scaler', StandardScaler()),
@@ -86,13 +86,14 @@ def upperConfidenceBound(X, pipeline, kappa=2.0):
 
 
 if __name__ == "__main__":
-    np.random.seed(67)
+    # np.random.seed(67)
 
     # setup experiment
     SCALE = 'micro'
     ACQ_FUN = 'ei'
-    ACQ_FUN_VAR = 0.01
-    FILENAME = f'Task03/{SCALE}_data_{ACQ_FUN}({ACQ_FUN_VAR}).csv'
+    ACQ_FUN_VAR = 1
+    RUN_ID = '01'
+    FILENAME = f'Task03/{SCALE}_data_{ACQ_FUN}({ACQ_FUN_VAR})_{RUN_ID}.csv'
     
     # setup client
     client = BioreactorClient()
@@ -111,7 +112,7 @@ if __name__ == "__main__":
             fileName=FILENAME)
 
     # main training loop
-    for i in range(50):
+    for i in range(100):
         # get data so far
         df = getDataFrameFromCSV(fileName=FILENAME)
         cummulativeCost = np.sum(df["cost_eur"])
