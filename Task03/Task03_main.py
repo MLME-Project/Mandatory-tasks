@@ -8,8 +8,10 @@ from sklearn.gaussian_process.kernels import RBF, ConstantKernel, WhiteKernel
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from scipy.optimize import minimize
+import warnings
+from sklearn.exceptions import ConvergenceWarning
 from API_Group8 import BioreactorClient
-from data_frame_and_csv_manipulation import appendToCSV, getXyFromCSV, getDataFrameFromCSV, getXyFromDataFrame
+from data_frame_and_csv_manipulation import appendToCSV, getXyFromCSV, getDataFrameFromCSV, getXyFromDataFrame, INPUT_COLS
 
 
 # setup bounds
@@ -34,7 +36,7 @@ N_INITIAL_SAMPLES = 2**5
 def setupPipeline():
     # σ_signal² · exp(-‖x−x'‖²/2ℓ²) + σ_noise²·δ(x,x')
     # 5 length scales for automatic relevance determination (ARD)
-    rbf = ConstantKernel() * RBF(length_scale=[1.0]*5, bounds=[(1e-5, 3.0)]*5) + WhiteKernel()
+    rbf = ConstantKernel() * RBF(length_scale=[1.0]*5, length_scale_bounds=[(1e-5, 3.0)]*5) + WhiteKernel()
     gp = GaussianProcessRegressor(kernel=rbf, n_restarts_optimizer=50)
     pipe = Pipeline([
     ('scaler', StandardScaler()),
@@ -91,8 +93,8 @@ if __name__ == "__main__":
     # setup experiment
     SCALE = 'micro'
     ACQ_FUN = 'ei'
-    ACQ_FUN_VAR = 1
-    RUN_ID = '01'
+    ACQ_FUN_VAR = 0.01
+    RUN_ID = '04'
     FILENAME = f'Task03/{SCALE}_data_{ACQ_FUN}({ACQ_FUN_VAR})_{RUN_ID}.csv'
     
     # setup client
@@ -122,7 +124,16 @@ if __name__ == "__main__":
 
         # fit gp
         pipe = setupPipeline()
-        pipe.fit(X, y)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            pipe.fit(X, y)
+        for warning in w:
+            if isinstance(warning.message, ConvergenceWarning):
+                message = str(warning).split(' ')
+                dimension = int(message[8])
+                variable = INPUT_COLS[dimension]
+                upperLower = message[17]
+                print("length_scale of", variable, "is at", upperLower, "bound")
 
         # sample acquisition function
         n_test = 100000
