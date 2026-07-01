@@ -8,7 +8,7 @@ from Task03_main import setupPipeline, T_BOUNDS, pH_BOUNDS, F_BOUNDS, N_INITIAL_
 from data_frame_and_csv_manipulation import getXyFromCSV
 
 
-CSV_FILE = 'Task03/micro_data_ei(0.05).csv'
+CSV_FILE = 'Task03/micro_data_ei(0.01)_05.csv'
 N_EVALS = 3
 SCALE = 'pilot'
 
@@ -23,20 +23,9 @@ Y_measured = []
 
 for n_train in range(N_INITIAL_SAMPLES, n_total + 1):
     X_train, y_train = X_all[:n_train], y_all[:n_train]
+    X_best = X_train[np.argmax(y_train)]
 
-    pipe = setupPipeline()
-    pipe.fit(X_train, y_train)
-
-    X_search = np.column_stack([
-        np.random.uniform(*T_BOUNDS, n_search),
-        np.random.uniform(*pH_BOUNDS, n_search),
-        np.random.uniform(*F_BOUNDS, n_search),
-        np.random.uniform(*F_BOUNDS, n_search),
-        np.random.uniform(*F_BOUNDS, n_search),
-    ])
-    mu = pipe.predict(X_search)
-    X_opt = X_search[np.argmax(mu)]
-    T, pH, F1, F2, F3 = X_opt
+    T, pH, F1, F2, F3 = X_best
 
     iteration = n_train - N_INITIAL_SAMPLES
     Y_iter = []
@@ -44,7 +33,7 @@ for n_train in range(N_INITIAL_SAMPLES, n_total + 1):
         result = client.run(SCALE, T, pH, F1, F2, F3)
         Y_iter.append(result['Y'])
     Y_measured.append(Y_iter)
-    print(f"iteration {iteration:3d} | n_train={n_train} | T={T:.1f} pH={pH:.2f} F1={F1:.2f} F2={F2:.2f} F3={F3:.2f} | Y={np.mean(Y_iter):.3f} ± {np.std(Y_iter):.3f}")
+    print(f"iteration {iteration:3d} | X_best = [T={T:.1f} pH={pH:.2f} F1={F1:.2f} F2={F2:.2f} F3={F3:.2f}] | measured Y = {np.mean(Y_iter):.3f} ± {np.std(Y_iter):.3f}")
 
 # plot
 iterations = np.arange(len(Y_measured))
@@ -56,7 +45,7 @@ for i, Y_iter in enumerate(Y_measured):
 ax.plot(iterations, np.maximum.accumulate(Y_means), color='tomato', linewidth=1.5, label='best mean so far')
 ax.set_xlabel('BO iteration')
 ax.set_ylabel(f'Y  [{SCALE}]')
-ax.set_title('Evaluation at GP optimum per BO iteration')
+ax.set_title('Evaluation at best measurement per BO iteration')
 ax.legend()
 fig.tight_layout()
 fig.savefig(CSV_FILE.removesuffix('.csv') + f'_{SCALE}_benchmark.pdf')
