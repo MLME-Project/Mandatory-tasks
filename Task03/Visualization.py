@@ -3,12 +3,13 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 import numpy as np
 from matplotlib import pyplot as plt
-from Task03_main import setupPipeline, expectedImprovement, T_BOUNDS, pH_BOUNDS, F_BOUNDS
+from Task03_main import setupPipeline, T_BOUNDS, pH_BOUNDS, F_BOUNDS
 from data_frame_and_csv_manipulation import getDataFrameFromCSV, getXyFromDataFrame, INPUT_COLS
 
 
 MAX_GP_POINTS = 300
 CSV_FILE = 'mlme26_group08_2026-06-29T10-47-17.csv'
+# CSV_FILE = 'Task03/micro_data_ei(0.01)_05.csv'
 
 df_all = getDataFrameFromCSV(CSV_FILE)
 scales = df_all['scale'].unique()
@@ -17,20 +18,21 @@ n = 3000
 
 for scale in scales:
     df = df_all[df_all['scale'] == scale]
-    X_train, y_train = getXyFromDataFrame(df)
+    X_measured, y_measured = getXyFromDataFrame(df)
+    X_fit, y_fit = X_measured, y_measured
 
-    if len(X_train) > MAX_GP_POINTS:
+    if len(X_fit) > MAX_GP_POINTS:
         n_best = MAX_GP_POINTS // 3
         n_rand = MAX_GP_POINTS - n_best
-        best_idx = np.argsort(y_train)[-n_best:]
-        remaining = np.setdiff1d(np.arange(len(X_train)), best_idx)
+        best_idx = np.argsort(y_fit)[-n_best:]
+        remaining = np.setdiff1d(np.arange(len(X_fit)), best_idx)
         rand_idx = np.random.choice(remaining, n_rand, replace=False)
         idx = np.concatenate([best_idx, rand_idx])
-        X_train, y_train = X_train[idx], y_train[idx]
+        X_fit, y_fit = X_fit[idx], y_fit[idx]
 
     pipe = setupPipeline()
     pipe.named_steps['gp'].n_restarts_optimizer = 10
-    pipe.fit(X_train, y_train)
+    pipe.fit(X_fit, y_fit)
 
     # sample random points across full input space
     X = np.column_stack([
@@ -40,64 +42,54 @@ for scale in scales:
         np.random.uniform(*F_BOUNDS, n),
         np.random.uniform(*F_BOUNDS, n),
     ])
-    y_best = np.max(y_train)
-    ei = expectedImprovement(X=X, pipeline=pipe, y_best=y_best, xi=0.1)
     mu, sigma = pipe.predict(X, return_std=True)
 
-    # sample with T and pH fixed
-    X_fixed_T_ph = np.column_stack([
-        np.full(n, fill_value=36),
-        np.full(n, fill_value=8),
-        np.random.uniform(*F_BOUNDS, n),
-        np.random.uniform(*F_BOUNDS, n),
-        np.random.uniform(*F_BOUNDS, n),
-    ])
-    ei_fixed_T_ph = expectedImprovement(X=X_fixed_T_ph, pipeline=pipe, y_best=y_best, xi=0.1)
-    mu_fixed_T_ph, sigma_fixed_T_ph = pipe.predict(X_fixed_T_ph, return_std=True)
+    # marker size encodes sigma; color (light = high sigma) does too
+    sigma_norm = (sigma - sigma.min()) / (sigma.max() - sigma.min() + 1e-12)
+    sizes = 3 + 60 * sigma_norm
 
-    # figure 1: all inputs × EI / mu / sigma
-    fig1, axes1 = plt.subplots(len(INPUT_COLS), 3, figsize=(9, 1.4 * len(INPUT_COLS)))
-    fig1.suptitle(f'GP predictions over all inputs  [{scale}]')
+    # draw largest circles first so smaller ones end up in front
+    draw_order = np.argsort(-sizes)
+    X_draw, mu_draw, sigma_draw, sizes_draw = X[draw_order], mu[draw_order], sigma[draw_order], sizes[draw_order]
 
-    for row, col_name in enumerate(INPUT_COLS):
+    # figure: top row = GP predictions (size/color encode sigma), bottom row = measured data
+    ncols = len(INPUT_COLS)
+    side = 2.8
+    fig, axes = plt.subplots(2, ncols, figsize=(side * ncols + 1, side * 2 + 1.5), sharex='col', sharey='row')
+    fig.suptitle(f'[{scale}]')
+
+    for col, col_name in enumerate(INPUT_COLS):
         col_idx = INPUT_COLS.index(col_name)
-        axes1[row, 0].scatter(X[:, col_idx], ei, s=0.5)
-        axes1[row, 0].set_xlabel(col_name)
-        axes1[row, 0].set_ylabel('EI')
-        axes1[row, 1].scatter(X[:, col_idx], mu, s=0.5)
-        axes1[row, 1].set_xlabel(col_name)
-        axes1[row, 1].set_ylabel('mu')
-        axes1[row, 2].scatter(X[:, col_idx], sigma, s=0.5)
-        axes1[row, 2].set_xlabel(col_name)
-        axes1[row, 2].set_ylabel('sigma')
-        if row == 0:
-            axes1[row, 0].set_title('EI')
-            axes1[row, 1].set_title('mu')
-            axes1[row, 2].set_title('sigma')
+        sc = axes[0, col].scatter(
+            X_draw[:, col_idx], mu_draw,
+            c=sigma_draw, cmap='Blues_r',
+            s=sizes_draw,
+            edgecolors='none',
+        )
+        axes[0, col].set_xlabel(col_name)
+        axes[0, col].tick_params(labelbottom=True)
+        axes[1, col].scatter(
+            X_measured[:, col_idx], y_measured,
+            s=10, color='tab:orange', edgecolors='none',
+        )
+        axes[1, col].set_xlabel(col_name)
+    axes[0, 0].set_ylabel('mu')
+    axes[1, 0].set_ylabel('Y')
 
-    fig1.tight_layout(rect=[0, 0, 1, 0.96])
+    fig.tight_layout(rect=[0, 0, 0.9, 0.94])
+    fig.subplots_adjust(hspace=0.5)
 
-    # figure 2: feed rate inputs only, T=36 pH=8
-    inputs_feed = INPUT_COLS[2:]
-    fig2, axes2 = plt.subplots(len(inputs_feed), 3, figsize=(9, 2 * len(inputs_feed)))
-    fig2.suptitle(f'GP predictions over feed rate inputs (T=36°, pH=8)  [{scale}]')
+    pos_top_left = axes[0, 0].get_position()
+    pos_top_right = axes[0, -1].get_position()
+    pos_bottom_left = axes[1, 0].get_position()
+    center_x = (pos_top_left.x0 + pos_top_right.x1) / 2
 
-    for row, col_name in enumerate(inputs_feed):
-        col_idx = INPUT_COLS.index(col_name)
-        axes2[row, 0].scatter(X_fixed_T_ph[:, col_idx], ei_fixed_T_ph, s=0.5)
-        axes2[row, 0].set_xlabel(col_name)
-        axes2[row, 0].set_ylabel('EI')
-        axes2[row, 1].scatter(X_fixed_T_ph[:, col_idx], mu_fixed_T_ph, s=0.5)
-        axes2[row, 1].set_xlabel(col_name)
-        axes2[row, 1].set_ylabel('mu')
-        axes2[row, 2].scatter(X_fixed_T_ph[:, col_idx], sigma_fixed_T_ph, s=0.5)
-        axes2[row, 2].set_xlabel(col_name)
-        axes2[row, 2].set_ylabel('sigma')
-        if row == 0:
-            axes2[row, 0].set_title('EI')
-            axes2[row, 1].set_title('mu')
-            axes2[row, 2].set_title('sigma')
+    fig.text(center_x, pos_top_left.y1 + 0.02, 'GP predictions (size/color = sigma)',
+              ha='center', fontsize=11)
+    fig.text(center_x, pos_bottom_left.y1 + 0.02, 'Measured data',
+              ha='center', fontsize=11)
 
-    fig2.tight_layout(rect=[0, 0, 1, 0.96])
+    cbar_ax = fig.add_axes([pos_top_right.x1 + 0.02, pos_top_left.y0, 0.02, pos_top_left.height])
+    fig.colorbar(sc, cax=cbar_ax, label='sigma')
 
 plt.show()
