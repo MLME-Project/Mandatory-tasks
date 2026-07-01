@@ -8,7 +8,7 @@ from data_frame_and_csv_manipulation import getDataFrameFromCSV, getXyFromDataFr
 
 
 MAX_GP_POINTS = 300
-CSV_FILE = 'mlme26_group08_2026-06-29T10-47-17.csv'
+CSV_FILE = 'mlme26_group08_2026-07-01T16-59-36.csv'
 # CSV_FILE = 'Task03/micro_data_ei(0.01)_05.csv'
 
 df_all = getDataFrameFromCSV(CSV_FILE)
