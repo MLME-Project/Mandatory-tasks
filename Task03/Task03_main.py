@@ -94,7 +94,7 @@ if __name__ == "__main__":
     SCALE = 'micro'
     ACQ_FUN = 'ei'
     ACQ_FUN_VAR = 0.01
-    RUN_ID = '04'
+    RUN_ID = '06'
     FILENAME = f'Task03/{SCALE}_data_{ACQ_FUN}({ACQ_FUN_VAR})_{RUN_ID}.csv'
     
     # setup client
@@ -173,4 +173,10 @@ if __name__ == "__main__":
         result = client.run(SCALE, T, pH, F1, F2, F3)
         appendToCSV(FILENAME, SCALE, T, pH, F1, F2, F3, result)
         print(f"measurement: Y = {result['Y']:.3f}")
-    
+
+    # evaluate best point on pilot scale
+    X, y = getXyFromCSV(FILENAME)
+    X_best = X[np.argmax(y)]
+    T, pH, F1, F2, F3 = X_best
+    result = client.run('pilot', T, pH, F1, F2, F3)
+    print(f"Best point on pilot scale: T={T:.1f} pH={pH:.2f} F1={F1:.2f} F2={F2:.2f} F3={F3:.2f} | Y = {result['Y']:.3f}")
