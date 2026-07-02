@@ -46,7 +46,8 @@ SCALE_ENCODE  = {"micro": 0, "bench": 1, "pilot": 2}   # ordinal encoding
 N_INIT        = 15      # LHS initialization experiments
 N_CANDIDATES  = 2000    # random candidates evaluated per BO iteration
 TARGET_Y      = 14.0    # stop when best pilot-Y exceeds this [g/L]
-MAX_ITER      = 50     # hard safety cap
+MAX_ITER      = 200     # hard safety cap
+MAX_COST      = 15000.0 # hard safety cap on total cost [EUR]
 
 
 # ---------------------------------------------------------------------------
@@ -156,23 +157,28 @@ def run_bo():
     # -----------------------------------------------------------------------
     # 1. INITIALIZATION via LHS
     # -----------------------------------------------------------------------
-    print(f"=== Initialization: {N_INIT} LHS experiments ===")
     init_recipes, init_scales = lhs_init(N_INIT)
+    total_micro = 0
+    total_bench = 0
 
     for i, (recipe, scale) in enumerate(zip(init_recipes, init_scales)):
         T, pH, F1, F2, F3 = recipe
-        print(f"  [{i+1}/{N_INIT}] scale={scale:6s}  "
-              f"T={T:.1f} pH={pH:.2f} F1={F1:.2f} F2={F2:.2f} F3={F3:.2f}",
-              end="  →  ", flush=True)
         result = client.run(scale, T, pH, F1, F2, F3)
         y, cost = parse_result(result)
-        print(f"Y={y:.3f} g/L  cost={cost:.1f} EUR")
+
+        if scale == "micro":
+            total_micro += 1
+        elif scale == "bench":
+            total_bench += 1
+
+        cumulative_cost += cost
+        print(f"[iter {i+1:03d}: \"{scale}\"] T={T:.2f}, pH={pH:.2f}, F1={F1:.2f}, F2={F2:.2f}, F3={F3:.2f}, EI_norm=- Y={y:.4f}")
+        print(f"          total cost={cumulative_cost:.1f}, total micro_ex={total_micro} total bench_ex={total_bench}")
 
         all_recipes.append(recipe)
         all_scales.append(scale)
         all_Y.append(y)
         all_costs.append(cost)
-        cumulative_cost += cost
 
         if y > best_observed_y:
             best_observed_y = y
@@ -221,38 +227,36 @@ def run_bo():
         next_scale  = cand_scales[best_idx]
         T, pH, F1, F2, F3 = next_recipe
 
-        print(f"[Iter {iteration:03d}] scale={next_scale:6s}  "
-              f"T={T:.1f} pH={pH:.2f} F1={F1:.2f} F2={F2:.2f} F3={F3:.2f}  "
-              f"EI_norm={ei_norm[best_idx]:.4f}",
-              end="  →  ", flush=True)
-
         # --- Run experiment ---
-        result = client.run(next_scale, T, pH, F1, F2, F3)
-        y, cost = parse_result(result)
-        print(f"Y={y:.3f} g/L  cost={cost:.1f} EUR")
+        if cumulative_cost + scale_cost(next_scale, 0, 0) < MAX_COST - scale_cost("pilot", 0, 0):
+            result = client.run(next_scale, T, pH, F1, F2, F3)
+            y, cost = parse_result(result)
+        else:
+            print(f"\nBudget limits reached: no more experiments allowed. Stopping BO.")
+            break
+
+        if next_scale == "micro":
+            total_micro += 1
+        elif next_scale == "bench":
+            total_bench += 1
+
+        cumulative_cost += cost
+        print(f"[iter {iteration:03d}] scale=\"{next_scale}\" T={T:.2f} pH={pH:.2f} F1={F1:.2f} F2={F2:.2f} F3={F3:.2f} EI_norm={ei_norm[best_idx]:.4f} Y={y:.4f} total cost={cumulative_cost:.1f} total micro_ex={total_micro} total bench_ex={total_bench}")
 
         all_recipes.append(next_recipe)
         all_scales.append(next_scale)
         all_Y.append(y)
         all_costs.append(cost)
-        cumulative_cost += cost
 
         if y > best_observed_y:
             best_observed_y = y
             best_recipe = next_recipe.copy()
 
         trajectory.append((iteration, best_observed_y, cumulative_cost))
-        print(f"          best observed Y: {best_observed_y:.3f} g/L | "
-              f"total cost: {cumulative_cost:.1f} EUR")
 
     # -----------------------------------------------------------------------
     # 3. RESULTS
     # -----------------------------------------------------------------------
-    print("\n=== FINAL RESULTS ===")
-    print(f"Best observed Y : {best_observed_y:.3f} g/L")
-    print(f"Total cost      : {cumulative_cost:.1f} EUR")
-    print(f"Total experiments: {len(all_Y)}")
-
     if best_recipe is not None:
         r = best_recipe
         print(f"Best recipe     : T={r[0]:.2f} pH={r[1]:.2f} "
@@ -264,8 +268,13 @@ def run_bo():
               f"F1={F1:.2f} F2={F2:.2f} F3={F3:.2f}")
         result = client.run("pilot", T, pH, F1, F2, F3)
         pilot_y, pilot_cost = parse_result(result)
-        print(f"Pilot Y         : {pilot_y:.3f} g/L")
+        cumulative_cost += pilot_cost
+
         print(f"Pilot cost      : {pilot_cost:.1f} EUR")
+        print("\n=== FINAL RESULTS ===")
+        print(f"Pilot Y         : {pilot_y:.3f} g/L")
+        print(f"Total cost      : {cumulative_cost:.1f} EUR")
+        print(f"Total experiments: {len(all_Y)}")
 
     return trajectory, all_recipes, all_scales, all_Y, all_costs
 
