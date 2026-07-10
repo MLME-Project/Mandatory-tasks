@@ -45,6 +45,7 @@ BOUNDS = np.array([
 SCALES        = ["micro", "bench", "pilot"]
 ACTIVE_SCALES = ["micro" , "bench"]
 SCALE_ENCODE  = {"micro": 0, "bench": 1, "pilot": 2}   # ordinal encoding
+SCALE_STD     = {"micro": 0.1225, "bench": 0.0160, "pilot": 0.0028}
 
 N_INIT        = 15      # LHS initialization experiments
 N_CANDIDATES  = 2000    # random candidates evaluated per BO iteration
@@ -127,6 +128,11 @@ def scale_cost(scale: str, mu: float, sigma: float) -> float:
     return COST[scale]
 
 
+def scale_reliability(scale: str) -> float:
+    """Return a reliability factor based on the provided per-scale standard deviation."""
+    return 1.0 / SCALE_STD.get(scale, 1.0)
+
+
 def fit_gp(X_train: np.ndarray, y_train: np.ndarray,
            scaler: StandardScaler) -> GaussianProcessRegressor:
     """
@@ -194,10 +200,10 @@ def run_bo():
     all_costs:   list[float]      = []
     yield_history: list[float]    = []
 
-    best_observed_y = -np.inf
+    best_expected_y = -np.inf
     best_recipe: np.ndarray | None = None
     cumulative_cost = 0.0
-    trajectory      = []   # (iteration, best_observed_y, cumulative_cost)
+    trajectory      = []   # (iteration, best_expected_y, cumulative_cost)
 
     # -----------------------------------------------------------------------
     # 1. INITIALIZATION via LHS
@@ -230,11 +236,11 @@ def run_bo():
         all_costs.append(cost)
         yield_history.append(y)
 
-        if expected_pilot_y > best_observed_y:
-            best_observed_y = expected_pilot_y
+        if expected_pilot_y > best_expected_y:
+            best_expected_y = expected_pilot_y
             best_recipe = recipe.copy()
 
-    print(f"\nInit done. Best observed Y so far: {best_observed_y:.3f} g/L | "
+    print(f"\nInit done. Best expected Y so far: {best_expected_y:.3f} g/L | "
           f"Total cost: {cumulative_cost:.1f} EUR\n")
 
     # -----------------------------------------------------------------------
@@ -245,8 +251,8 @@ def run_bo():
     for iteration in range(1, MAX_ITER + 1):
 
         # --- Stop criterion ---
-        if best_observed_y >= TARGET_Y:
-            print(f"\n✓ Target reached: best observed Y = {best_observed_y:.3f} g/L >= {TARGET_Y} g/L")
+        if best_expected_y >= TARGET_Y:
+            print(f"\n✓ Target reached: best expected Y = {best_expected_y:.3f} g/L >= {TARGET_Y} g/L")
             break
 
         # --- Fit GP ---
@@ -256,8 +262,8 @@ def run_bo():
         scaler.fit(X_train)
         gp = fit_gp(X_train, y_train, scaler)
 
-        # f_best: best observed Y from the BO runs so far
-        f_best = best_observed_y
+        # f_best: best expected Y from the BO runs so far
+        f_best = best_expected_y
 
         # --- Sample candidates and evaluate acquisition ---
         cand_recipes, cand_scales = sample_candidates(N_CANDIDATES, seed=iteration)
@@ -267,12 +273,15 @@ def run_bo():
         mu, sigma = gp.predict(X_cand_scaled, return_std=True)
         acq       = adaptive_acquisition(mu, sigma, f_best, iteration, MAX_ITER)
 
-        # Normalize acquisition score by expected cost of that scale
+        # Normalize acquisition score by expected cost of that scale and
+        # include the per-scale standard deviation as a reliability-weighting term.
         costs_cand = np.array([scale_cost(s, 0, 0) for s in cand_scales])
         acq_norm   = acq / costs_cand
+        rel_cand   = np.array([scale_reliability(s) for s in cand_scales])
+        acq_final  = acq_norm * rel_cand
 
         # Pick best candidate
-        best_idx   = int(np.argmax(acq_norm))
+        best_idx   = int(np.argmax(acq_final))
         next_recipe = cand_recipes[best_idx]
         next_scale  = cand_scales[best_idx]
         T, pH, F1, F2, F3 = next_recipe
@@ -294,7 +303,7 @@ def run_bo():
         cumulative_cost += cost
         print(
             f"[iter {iteration:03d}]\"{next_scale}\" {T:.2f},{pH:.2f},{F1:.2f},{F2:.2f},{F3:.2f} "
-            f"Y_obs={y:.4f}, expY_p={expected_pilot_y:.4f} "
+            f"Y_obs={y:.4f}, expY_p={expected_pilot_y:.4f},best_expY_p={best_expected_y:.4f}, std={SCALE_STD[next_scale]:.4f} "
             f"total cost={cumulative_cost:.1f} total micro_ex={total_micro} total bench_ex={total_bench}"
         )
 
@@ -304,11 +313,11 @@ def run_bo():
         all_costs.append(cost)
         yield_history.append(expected_pilot_y)
 
-        if expected_pilot_y > best_observed_y:
-            best_observed_y = expected_pilot_y
+        if expected_pilot_y > best_expected_y:
+            best_expected_y = expected_pilot_y
             best_recipe = next_recipe.copy()
 
-        trajectory.append((iteration, best_observed_y, cumulative_cost))
+        trajectory.append((iteration, best_expected_y, cumulative_cost))
 
     # -----------------------------------------------------------------------
     # 3. RESULTS
