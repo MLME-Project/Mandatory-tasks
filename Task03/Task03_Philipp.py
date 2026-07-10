@@ -17,6 +17,9 @@ from sklearn.gaussian_process.kernels import Matern, WhiteKernel
 from sklearn.preprocessing import StandardScaler
 import warnings
 from sklearn.exceptions import ConvergenceWarning
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 warnings.filterwarnings("ignore", category=ConvergenceWarning)
 # ---------------------------------------------------------------------------
@@ -32,7 +35,7 @@ from API_Group8 import BioreactorClient, BASE_URL, USER, PASSWORD
 
 # Parameter bounds: [T, pH, F1, F2, F3]
 BOUNDS = np.array([
-    [20.0, 60.0],   # T   [°C]
+    [35.0, 40.0],   # T   [°C] (heuroistic: narrow range around 37°C)
     [ 3.0,  9.5],   # pH
     [ 0.0,  2.0],   # F1  [g/L/h]
     [ 0.0,  2.0],   # F2  [g/L/h]
@@ -40,13 +43,13 @@ BOUNDS = np.array([
 ])
 
 SCALES        = ["micro", "bench", "pilot"]
-ACTIVE_SCALES = ["micro", "bench"]
+ACTIVE_SCALES = ["micro" , "bench"]
 SCALE_ENCODE  = {"micro": 0, "bench": 1, "pilot": 2}   # ordinal encoding
 
 N_INIT        = 15      # LHS initialization experiments
 N_CANDIDATES  = 2000    # random candidates evaluated per BO iteration
 TARGET_Y      = 14.0    # stop when best pilot-Y exceeds this [g/L]
-MAX_ITER      = 200     # hard safety cap
+MAX_ITER      = 100     # hard safety cap
 MAX_COST      = 15000.0 # hard safety cap on total cost [EUR]
 
 
@@ -83,6 +86,36 @@ def expected_improvement(mu: np.ndarray, sigma: np.ndarray,
     ei          = improvement * norm.cdf(Z) + sigma * norm.pdf(Z)
     ei[sigma < 1e-10] = 0.0
     return ei
+
+
+def upper_confidence_bound(mu: np.ndarray, sigma: np.ndarray,
+                            beta: float) -> np.ndarray:
+    """Simple UCB acquisition: favor points with high mean and high uncertainty."""
+    return mu + beta * sigma
+
+
+def adaptive_acquisition(mu: np.ndarray, sigma: np.ndarray,
+                          f_best: float, iteration: int,
+                          max_iter: int, xi: float = 0.01) -> np.ndarray:
+    """
+    Blend UCB and EI smoothly over time:
+    - early iterations: more exploration via UCB
+    - later iterations: more exploitation via EI
+    """
+    ei = expected_improvement(mu, sigma, f_best, xi=xi)
+
+    # Smoothly increase exploitation from 0 to 1 over the run.
+    progress = (iteration - 1) / max(1, max_iter - 1)
+    exploitation_weight = progress**1.5
+    exploration_weight = 1.0 - exploitation_weight
+
+    # UCB becomes less dominant as exploitation grows.
+    beta = 1.5 * exploration_weight + 0.2 * exploitation_weight
+    ucb = upper_confidence_bound(mu, sigma, beta)
+
+    ei_scaled = ei / (np.max(ei) + 1e-12)
+    ucb_scaled = ucb / (np.max(ucb) + 1e-12)
+    return exploration_weight * ucb_scaled + exploitation_weight * ei_scaled
 
 
 def scale_cost(scale: str, mu: float, sigma: float) -> float:
@@ -148,6 +181,7 @@ def run_bo():
     all_scales:  list[str]        = []
     all_Y:       list[float]      = []
     all_costs:   list[float]      = []
+    yield_history: list[float]    = []
 
     best_observed_y = -np.inf
     best_recipe: np.ndarray | None = None
@@ -179,6 +213,7 @@ def run_bo():
         all_scales.append(scale)
         all_Y.append(y)
         all_costs.append(cost)
+        yield_history.append(y)
 
         if y > best_observed_y:
             best_observed_y = y
@@ -215,14 +250,14 @@ def run_bo():
         X_cand_scaled = scaler.transform(X_cand)
 
         mu, sigma = gp.predict(X_cand_scaled, return_std=True)
-        ei        = expected_improvement(mu, sigma, f_best)
+        acq       = adaptive_acquisition(mu, sigma, f_best, iteration, MAX_ITER)
 
-        # Normalize EI by expected cost of that scale
+        # Normalize acquisition score by expected cost of that scale
         costs_cand = np.array([scale_cost(s, 0, 0) for s in cand_scales])
-        ei_norm    = ei / costs_cand
+        acq_norm   = acq / costs_cand
 
         # Pick best candidate
-        best_idx   = int(np.argmax(ei_norm))
+        best_idx   = int(np.argmax(acq_norm))
         next_recipe = cand_recipes[best_idx]
         next_scale  = cand_scales[best_idx]
         T, pH, F1, F2, F3 = next_recipe
@@ -241,12 +276,13 @@ def run_bo():
             total_bench += 1
 
         cumulative_cost += cost
-        print(f"[iter {iteration:03d}] scale=\"{next_scale}\" T={T:.2f} pH={pH:.2f} F1={F1:.2f} F2={F2:.2f} F3={F3:.2f} EI_norm={ei_norm[best_idx]:.4f} Y={y:.4f} total cost={cumulative_cost:.1f} total micro_ex={total_micro} total bench_ex={total_bench}")
+        print(f"[iter {iteration:03d}] scale=\"{next_scale}\" T={T:.2f} pH={pH:.2f} F1={F1:.2f} F2={F2:.2f} F3={F3:.2f} acq_norm={acq_norm[best_idx]:.4f} Y={y:.4f} total cost={cumulative_cost:.1f} total micro_ex={total_micro} total bench_ex={total_bench}")
 
         all_recipes.append(next_recipe)
         all_scales.append(next_scale)
         all_Y.append(y)
         all_costs.append(cost)
+        yield_history.append(y)
 
         if y > best_observed_y:
             best_observed_y = y
@@ -275,6 +311,21 @@ def run_bo():
         print(f"Pilot Y         : {pilot_y:.3f} g/L")
         print(f"Total cost      : {cumulative_cost:.1f} EUR")
         print(f"Total experiments: {len(all_Y)}")
+
+    if yield_history:
+        fig, ax = plt.subplots(figsize=(8, 4.5))
+        ax.plot(range(1, len(yield_history) + 1), yield_history, marker="o", linestyle="-", color="tab:blue")
+        ax.axhline(TARGET_Y, color="tab:red", linestyle="--", label=f"Target {TARGET_Y:.1f} g/L")
+        ax.set_title("Yield over iterations")
+        ax.set_xlabel("Iteration")
+        ax.set_ylabel("Yield Y [g/L]")
+        ax.grid(True, alpha=0.3)
+        ax.legend()
+        output_path = os.path.join(os.path.dirname(__file__), "yield_history.png")
+        plt.tight_layout()
+        fig.savefig(output_path, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Saved yield history plot to: {output_path}")
 
     return trajectory, all_recipes, all_scales, all_Y, all_costs
 
