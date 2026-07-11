@@ -12,12 +12,7 @@ import warnings
 from sklearn.exceptions import ConvergenceWarning
 from API_Group8 import BioreactorClient
 from data_frame_and_csv_manipulation import appendToCSV, getXyFromCSV, getDataFrameFromCSV, getXyFromDataFrame, INPUT_COLS
-
-
-# setup bounds
-T_BOUNDS = [20, 60]
-pH_BOUNDS = [3, 9.5]
-F_BOUNDS = [0, 2]
+from global_constants import T_BOUNDS, pH_BOUNDS, F_BOUNDS
 
 
 
@@ -91,10 +86,10 @@ if __name__ == "__main__":
     # np.random.seed(67)
 
     # setup experiment
-    SCALE = 'micro'
+    SCALE = 'pilot'
     ACQ_FUN = 'ei'
     ACQ_FUN_VAR = 0.01
-    RUN_ID = '06'
+    RUN_ID = '03'
     FILENAME = f'Task03/{SCALE}_data_{ACQ_FUN}({ACQ_FUN_VAR})_{RUN_ID}.csv'
     
     # setup client
