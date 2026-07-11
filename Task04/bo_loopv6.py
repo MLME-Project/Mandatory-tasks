@@ -355,6 +355,7 @@ def fit_multi_fidelity_model(X: torch.Tensor, Y: torch.Tensor) -> SingleTaskGP:
 def get_next_candidates(model: SingleTaskGP, 
                        bounds: torch.Tensor, 
                        X: torch.Tensor,
+                       Y: torch.Tensor,
                        step: int) -> Tuple[torch.Tensor, str]:
     """
     Use cost-aware acquisition function to suggest next candidates.
@@ -363,11 +364,11 @@ def get_next_candidates(model: SingleTaskGP,
     device = X.device
     dim = bounds.shape[1]
     
-    # Find best observed value
-    try:
-        best_f = X[:, 0].max().item() if dim > 0 else 0
-    except:
-        best_f = 0
+    # Find best observed value (im normalisierten Raum des Modells)
+    best_f = ((Y.max() - model.Y_mean) / model.Y_std).item()
+    
+    # Create acquisition function (qEI maximizes by default)
+    acq_func = qExpectedImprovement(model, best_f)
     
     # Create acquisition function (qEI maximizes by default)
     acq_func = qExpectedImprovement(model, best_f)
@@ -439,7 +440,7 @@ def run_bo_loop(step: int, fixed_params: Dict[str, float]) -> Tuple[Dict[str, fl
         model = fit_multi_fidelity_model(X, Y)
         
         # Get next candidate
-        x_next, suggested_scale = get_next_candidates(model, bounds, X, step)
+        x_next, suggested_scale = get_next_candidates(model, bounds, X, Y, step)
         
         # Construct full recipe
         recipe = tensor_to_recipe(x_next, step, fixed_params)
