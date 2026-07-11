@@ -40,56 +40,70 @@ def find_existing_file(requested_path: str, base_dir: Path) -> Path | None:
     return None
 
 
-def read_summary_excel(path: str) -> List[dict]:
-    xls = pd.ExcelFile(path)
+def read_summary_data(path: str) -> List[dict]:
+    path_obj = Path(path)
     rows = []
-    for sheet in xls.sheet_names:
-        df = pd.read_excel(xls, sheet_name=sheet, header=0)
-        for idx in range(len(df)):
-            try:
-                scale = str(df.iloc[idx, 2]).strip()
-                t = _maybe_float(df.iloc[idx, 3])
-                ph = _maybe_float(df.iloc[idx, 4])
-                f1 = _maybe_float(df.iloc[idx, 5])
-                f2 = _maybe_float(df.iloc[idx, 6])
-                f3 = _maybe_float(df.iloc[idx, 7])
-                y_val = None
-                if 8 in df.columns or len(df.columns) > 8:
-                    try:
-                        y_val = _maybe_float(df.iloc[idx, 8])
-                    except Exception:
-                        y_val = None
-                if y_val is None:
-                    for candidate in ("Y", "y", "yield", "quality", "score"):
-                        if candidate in df.columns:
-                            try:
-                                y_val = _maybe_float(df.at[idx, candidate])
-                                break
-                            except Exception:
-                                y_val = None
+    df = None
 
-                if y_val is None:
-                    continue
+    if path_obj.suffix.lower() == ".csv":
+        df = pd.read_csv(path_obj)
+    else:
+        xls = pd.ExcelFile(path_obj)
+        for sheet in xls.sheet_names:
+            sheet_df = pd.read_excel(xls, sheet_name=sheet, header=0)
+            if df is None:
+                df = sheet_df
+            else:
+                df = pd.concat([df, sheet_df], ignore_index=True)
 
-                rows.append({
-                    "scale": scale,
-                    "T": t,
-                    "pH": ph,
-                    "F1": f1,
-                    "F2": f2,
-                    "F3": f3,
-                    "quality": y_val,
-                    "status": "ok",
-                    "result": {"Y": y_val},
-                })
-            except Exception:
+    if df is None:
+        return rows
+
+    for idx in range(len(df)):
+        try:
+            scale = str(df.iloc[idx, 2]).strip()
+            t = _maybe_float(df.iloc[idx, 3])
+            ph = _maybe_float(df.iloc[idx, 4])
+            f1 = _maybe_float(df.iloc[idx, 5])
+            f2 = _maybe_float(df.iloc[idx, 6])
+            f3 = _maybe_float(df.iloc[idx, 7])
+            y_val = None
+            if 8 in df.columns or len(df.columns) > 8:
+                try:
+                    y_val = _maybe_float(df.iloc[idx, 8])
+                except Exception:
+                    y_val = None
+            if y_val is None:
+                for candidate in ("Y", "y", "yield", "quality", "score"):
+                    if candidate in df.columns:
+                        try:
+                            y_val = _maybe_float(df.at[idx, candidate])
+                            break
+                        except Exception:
+                            y_val = None
+
+            if y_val is None:
                 continue
+
+            rows.append({
+                "scale": scale,
+                "T": t,
+                "pH": ph,
+                "F1": f1,
+                "F2": f2,
+                "F3": f3,
+                "quality": y_val,
+                "status": "ok",
+                "result": {"Y": y_val},
+            })
+        except Exception:
+            continue
     return rows
 
 
 if __name__ == "__main__":
     script_dir = Path(__file__).resolve().parent
-    path = "Summery_Versuche.xlsx"
+    path = "Summery_Versuche2.csv"
     if len(sys.argv) > 1:
         path = " ".join(sys.argv[1:]).strip('"')
     file_path = find_existing_file(path, script_dir)
@@ -102,8 +116,8 @@ if __name__ == "__main__":
             print(f"  - {candidate}")
         sys.exit(1)
 
-    print(f"Verwende Excel-Datei: {file_path}")
-    data = read_summary_excel(str(file_path))
+    print(f"Verwende Datei: {file_path}")
+    data = read_summary_data(str(file_path))
     print(f"Parsed {len(data)} valid rows from {file_path}")
     if not data:
         print("No data to visualize.")

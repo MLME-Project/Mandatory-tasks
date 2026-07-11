@@ -23,16 +23,24 @@ def _barycentric_coords(f1: float, f2: float, f3: float) -> tuple[float, float] 
 
 
 def read_and_compute_stddev(path: str) -> list[dict]:
-    """Read Excel, group by identical conditions, compute std of Y per group."""
-    xls = pd.ExcelFile(path)
+    """Read CSV or Excel, group by identical conditions, compute std of Y per group."""
+    path_obj = Path(path)
+    required = {"scale", "T", "pH", "F1", "F2", "F3", "Y"}
 
-    all_dfs = []
-    for sheet in xls.sheet_names:
-        df = pd.read_excel(xls, sheet_name=sheet, header=0)
-        required = {"scale", "T", "pH", "F1", "F2", "F3", "Y"}
+    if path_obj.suffix.lower() == ".csv":
+        df = pd.read_csv(path_obj)
         if not required.issubset(set(df.columns)):
-            continue
-        all_dfs.append(df[list(required)])
+            print("Keine gueltigen Spalten in der CSV gefunden.")
+            return []
+        all_dfs = [df[list(required)]]
+    else:
+        xls = pd.ExcelFile(path_obj)
+        all_dfs = []
+        for sheet in xls.sheet_names:
+            df = pd.read_excel(xls, sheet_name=sheet, header=0)
+            if not required.issubset(set(df.columns)):
+                continue
+            all_dfs.append(df[list(required)])
 
     if not all_dfs:
         print("Keine gueltigen Sheets gefunden.")
@@ -50,6 +58,8 @@ def read_and_compute_stddev(path: str) -> list[dict]:
 
     grouped = grouped[grouped["count"] >= 2].copy()
     grouped["std_y"] = grouped["std_y"].fillna(0.0)
+    grouped["std_y_relative"] = grouped["std_y"] / grouped["mean_y"].replace(0, np.nan)
+    grouped["std_y_relative"] = grouped["std_y_relative"].fillna(0.0)
 
     rows = []
     for _, row in grouped.iterrows():
@@ -64,6 +74,7 @@ def read_and_compute_stddev(path: str) -> list[dict]:
             "F2":     float(row["F2"]),
             "F3":     float(row["F3"]),
             "std_y":  float(row["std_y"]),
+            "std_y_relative": float(row["std_y_relative"]),
             "mean_y": float(row["mean_y"]),
             "count":  int(row["count"]),
         })
@@ -80,7 +91,7 @@ def read_and_compute_stddev(path: str) -> list[dict]:
     return rows
 
 
-def visualize_stddev(rows: list[dict], t_bins: int = 8, ph_bins: int = 8) -> None:
+def visualize_stddev(rows: list[dict], t_bins: int = 8, ph_bins: int = 8, value_key: str = "std_y", suffix: str = "") -> None:
     try:
         import matplotlib.pyplot as plt
         import matplotlib.colors as mcolors
@@ -110,7 +121,7 @@ def visualize_stddev(rows: list[dict], t_bins: int = 8, ph_bins: int = 8) -> Non
 
     scale_std_ranges: dict[str, tuple[float, float] | None] = {}
     for scale in ["micro", "bench", "pilot"]:
-        vals = [r["std_y"] for r in rows if r["scale"] == scale]
+        vals = [r[value_key] for r in rows if r["scale"] == scale]
         scale_std_ranges[scale] = (min(vals), max(vals)) if vals else None
 
     binned: dict[str, dict[tuple[int, int], list[dict]]] = {
@@ -130,8 +141,9 @@ def visualize_stddev(rows: list[dict], t_bins: int = 8, ph_bins: int = 8) -> Non
             continue
 
         fig, axes = plt.subplots(ph_bins, t_bins, figsize=(12, 12), squeeze=False)
+        title_suffix = "(relativ zum Mittelwert)" if value_key == "std_y_relative" else ""
         fig.suptitle(
-            f"Task01: {scale.capitalize()}-Scale - Standardabweichung des Yields",
+            f"Task01: {scale.capitalize()}-Scale - Standardabweichung des Yields {title_suffix}".strip(),
             fontsize=16,
         )
 
@@ -156,7 +168,7 @@ def visualize_stddev(rows: list[dict], t_bins: int = 8, ph_bins: int = 8) -> Non
                     bin_samples = sorted(bin_samples, key=lambda r: r["std_y"])
                     coords = [_barycentric_coords(r["F1"], r["F2"], r["F3"])
                               for r in bin_samples]
-                    valid = [(c, r["std_y"], r["count"])
+                    valid = [(c, r[value_key], r["count"])
                              for c, r in zip(coords, bin_samples) if c is not None]
 
                     if valid:
@@ -198,16 +210,17 @@ def visualize_stddev(rows: list[dict], t_bins: int = 8, ph_bins: int = 8) -> Non
             left=0.03, right=0.92, top=0.94, bottom=0.03, hspace=0.4, wspace=0.4
         )
         if figure_scatter is not None:
-            cax = fig.add_axes([0.94, 0.1, 0.02, 0.8])
-            fig.colorbar(figure_scatter, cax=cax, label="Std.-Abweichung Yield")
+            cax = fig.add_axes((0.94, 0.1, 0.02, 0.8))
+            color_label = "Std.-Abweichung Yield / Mean" if value_key == "std_y_relative" else "Std.-Abweichung Yield"
+            fig.colorbar(figure_scatter, cax=cax, label=color_label)
 
-        output_path = f"Task01_stddev_{scale}.png"
+        output_path = f"Task01_stddev_{scale}{suffix}.png"
         fig.savefig(output_path, dpi=180)
         plt.close(fig)
         print(f"Gespeichert: {output_path}")
 
 
-def visualize_histograms(rows: list[dict], bins: int = 15, min_count: int = 4) -> None:
+def visualize_histograms(rows: list[dict], bins: int = 15, min_count: int = 4, value_key: str = "std_y", suffix: str = "") -> None:
     """Creates and saves a histogram of std_y for each scale, filtering for groups with >= min_count."""
     try:
         import matplotlib.pyplot as plt
@@ -222,16 +235,18 @@ def visualize_histograms(rows: list[dict], bins: int = 15, min_count: int = 4) -
             print(f"Keine Daten für Scale '{scale}' mit n >= {min_count} vorhanden. Überspringe Histogramm.")
             continue
 
-        std_vals = [r["std_y"] for r in scale_rows]
+        std_vals = [r[value_key] for r in scale_rows]
 
         fig, ax = plt.subplots(figsize=(7, 4.5))
         
         # Histogramm zeichnen
         ax.hist(std_vals, bins=bins, color="#f15a24", edgecolor="black", alpha=0.8, rwidth=0.9)
         
-        ax.set_title(f"Verteilung der Std.-Abweichung ({scale.capitalize()}-Scale)\nNur Gruppen mit n ≥ {min_count}", 
+        title_prefix = "Verteilung der relativen Std.-Abweichung" if value_key == "std_y_relative" else "Verteilung der Std.-Abweichung"
+        ax.set_title(f"{title_prefix} ({scale.capitalize()}-Scale)\nNur Gruppen mit n ≥ {min_count}", 
                      fontsize=12, fontweight='bold', pad=12)
-        ax.set_xlabel("Standardabweichung des Yields (std_y)", fontsize=10)
+        x_label = "Relative Standardabweichung des Yields (std_y / mean_y)" if value_key == "std_y_relative" else "Standardabweichung des Yields (std_y)"
+        ax.set_xlabel(x_label, fontsize=10)
         ax.set_ylabel("Anzahl der Gruppen", fontsize=10)
         
         ax.grid(axis='y', linestyle='--', alpha=0.7)
@@ -246,21 +261,21 @@ def visualize_histograms(rows: list[dict], bins: int = 15, min_count: int = 4) -
                 verticalalignment='top', horizontalalignment='right', bbox=props)
 
         plt.tight_layout()
-        output_path = f"Task01_hist_{scale}.png"
+        output_path = f"Task01_hist_{scale}{suffix}.png"
         fig.savefig(output_path, dpi=180)
         plt.close(fig)
         print(f"Gespeichert: {output_path}")
 
 
 if __name__ == "__main__":
-    path = "Summery_ Versuche.xlsx"
+    path = "Summery_Versuche2.csv"
     if len(sys.argv) > 1:
         path = " ".join(sys.argv[1:]).strip('"')
 
     file_path = Path(path)
     if not file_path.exists():
         script_dir = Path(__file__).resolve().parent
-        candidates = list(script_dir.glob("*.xlsx"))
+        candidates = list(script_dir.glob("*.csv")) + list(script_dir.glob("*.xlsx"))
         for c in candidates:
             name_norm = "".join(ch for ch in c.name.lower() if ch.isalnum())
             req_norm  = "".join(ch for ch in file_path.name.lower() if ch.isalnum())
@@ -277,4 +292,6 @@ if __name__ == "__main__":
     rows = read_and_compute_stddev(str(file_path))
     if rows:
         visualize_stddev(rows)
-        visualize_histograms(rows, min_count=4)  # Filtert jetzt auf >= 4 Messungen
+        visualize_stddev(rows, value_key="std_y_relative", suffix="_relative")
+        visualize_histograms(rows, min_count=4)
+        visualize_histograms(rows, min_count=4, value_key="std_y_relative", suffix="_relative")

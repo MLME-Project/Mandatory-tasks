@@ -1,0 +1,537 @@
+"""
+====================================================================================
+MULTI-FIDELITY BAYESIAN OPTIMIZATION FOR BIOREACTOR YIELD MAXIMIZATION
+bo_loopv6.py - Sequential 3-Step Multi-Fidelity BO with Cost Awareness
+====================================================================================
+"""
+
+import os
+import csv
+import json
+import warnings
+import numpy as np
+import torch
+from typing import Tuple, List, Dict
+from datetime import datetime
+import sys
+
+# Add parent directory to path to import API_Group8
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+# BoTorch imports
+import botorch
+from botorch.models import SingleTaskGP
+from botorch.acquisition import qExpectedImprovement
+from botorch.optim import optimize_acqf
+from botorch.fit import fit_gpytorch_mll
+import gpytorch
+
+# Suppress warnings for cleaner output
+warnings.filterwarnings('ignore')
+
+# Import the API module
+from API_Group8 import BioreactorClient
+
+##====================================================================================
+## CENTRALIZED HYPERPARAMETER DEFINITIONS
+##====================================================================================
+print("\n" + "="*80)
+print("HYPERPARAMETER CONFIGURATION")
+print("="*80)
+
+# ==================== EXPERIMENT SCALE CONFIGURATION ====================
+SCALES = ['micro', 'bench', 'pilot']
+SCALE_TO_FIDELITY = {'micro': 0.0, 'bench': 0.5, 'pilot': 1.0}
+SCALE_COSTS = {'micro': 10, 'bench': 200, 'pilot': 2000}
+
+# ==================== BUDGET CONSTRAINTS ====================
+TOTAL_BUDGET = 14000                    # Total EUR budget
+RESERVED_PILOT_BUDGET = 2000            # Reserve for final validation run
+EXPLORATION_BUDGET = TOTAL_BUDGET - RESERVED_PILOT_BUDGET  # 12000 EUR for exploration
+
+# ==================== PARAMETER BOUNDS ====================
+# Temperature (T), pH, Feed Rate 1 (F1), Feed Rate 2 (F2), Feed Rate 3 (F3)
+BOUNDS = {
+    'T': (20.0, 60.0),          # Temperature: 20-60 °C
+    'pH': (3.0, 9.5),            # pH: 3-9.5
+    'F1': (0.0, 2.0),            # Feed Rate 1: 0-2
+    'F2': (0.0, 2.0),            # Feed Rate 2: 0-2
+    'F3': (0.0, 2.0),            # Feed Rate 3: 0-2
+}
+
+# ==================== BASELINE PARAMETERS ====================
+BASELINE_PARAMS = {
+    'T': 40.0,                   # Baseline Temperature
+    'pH': 7.0,                   # Baseline pH
+    'F1': 1.0,                   # Baseline Feed Rate 1
+    'F2': 1.0,                   # Baseline Feed Rate 2
+    'F3': 1.0,                   # Baseline Feed Rate 3
+}
+
+# ==================== BO LOOP HYPERPARAMETERS ====================
+# Initial samples per fidelity level (Step 1, 2, 3)
+INITIAL_SAMPLES = {
+    'micro': 10,                  # Initial micro scale samples
+    'bench': 0,                  # Initial bench scale samples
+    'pilot': 0,                  # Initial pilot scale samples (use for validation only)
+}
+
+# Number of optimization iterations per step
+BO_ITERATIONS = {
+    'step1': 40,                  # Step 1 (T optimization) iterations
+    'step2': 40,                  # Step 2 (pH optimization) iterations
+    'step3': 20,                  # Step 3 (F1, F2, F3 optimization) iterations
+}
+
+# Candidates evaluated per acquisition function call
+N_CANDIDATES = 2000               # Number of candidate points to evaluate
+
+# ==================== ACQUISITION FUNCTION SETTINGS ====================
+ACQUISITION_BETA = 5.0          # Temperature for expected improvement (higher = more conservative)
+
+# ==================== COST-AWARE SAMPLING STRATEGY ====================
+COST_SCALING_FACTOR = 0.5       # Scaling factor for cost-aware weighting
+
+print(f"\n[BUDGET]")
+print(f"  Total Budget:           {TOTAL_BUDGET:,} EUR")
+print(f"  Reserved for Validation: {RESERVED_PILOT_BUDGET:,} EUR")
+print(f"  Exploration Budget:     {EXPLORATION_BUDGET:,} EUR")
+print(f"\n[SCALES & COSTS]")
+for scale in SCALES:
+    print(f"  {scale.capitalize():10s}: Fidelity={SCALE_TO_FIDELITY[scale]:.1f}, Cost={SCALE_COSTS[scale]:4d} EUR")
+print(f"\n[INITIAL SAMPLING]")
+for scale in SCALES:
+    print(f"  {scale.capitalize():10s}: {INITIAL_SAMPLES[scale]:d} samples")
+print(f"\n[BO ITERATIONS]")
+for step, iters in BO_ITERATIONS.items():
+    print(f"  {step.upper():10s}: {iters:d} iterations")
+print(f"\n[OTHER]")
+print(f"  N_CANDIDATES:           {N_CANDIDATES:d}")
+print(f"  ACQUISITION_BETA:       {ACQUISITION_BETA:.4f}")
+print("="*80 + "\n")
+
+##====================================================================================
+## LOGGING AND TRACKING
+##====================================================================================
+
+class ExperimentLogger:
+    """Manages CSV logging and run statistics."""
+    
+    def __init__(self, output_dir: str = 'output_v2'):
+        self.output_dir = output_dir
+        os.makedirs(output_dir, exist_ok=True)
+        
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        self.csv_path = os.path.join(output_dir, f'bo_loopv6_results_{timestamp}.csv')
+        
+        # Initialize CSV with headers
+        self.headers = ['Run_Number', 'Scale', 'T', 'pH', 'F1', 'F2', 'F3', 'Cost', 'Yield']
+        with open(self.csv_path, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(self.headers)
+        
+        # Tracking variables
+        self.run_count = 0
+        self.scale_counts = {'micro': 0, 'bench': 0, 'pilot': 0}
+        self.total_cost = 0
+        self.all_results = []
+    
+    def log_experiment(self, scale: str, recipe: List[float], cost: float, yield_val: float):
+        """Log a single experiment to CSV and update tracking."""
+        self.run_count += 1
+        self.scale_counts[scale] += 1
+        self.total_cost += cost
+        
+        T, pH, F1, F2, F3 = recipe
+        row = [self.run_count, scale, T, pH, F1, F2, F3, cost, yield_val]
+        
+        with open(self.csv_path, 'a', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(row)
+        
+        self.all_results.append({
+            'run': self.run_count,
+            'scale': scale,
+            'recipe': recipe,
+            'cost': cost,
+            'yield': yield_val
+        })
+        
+        # Print live counter
+        print(f"[RUN {self.run_count:3d}] Scale: {scale:6s} | "
+              f"Micro: {self.scale_counts['micro']:2d}, "
+              f"Bench: {self.scale_counts['bench']:2d}, "
+              f"Pilot: {self.scale_counts['pilot']:2d} | "
+              f"Budget: {self.total_cost:7,.0f} / {EXPLORATION_BUDGET:,} EUR")
+    
+    def print_final_report(self, final_recipe: List[float], final_yield: float):
+        """Print formatted final report."""
+        T, pH, F1, F2, F3 = final_recipe
+        print("\n" + "="*80)
+        print("FINAL BAYESIAN OPTIMIZATION REPORT")
+        print("="*80)
+        print(f"\nFinal Optimal Recipe:")
+        print(f"  Temperature (T):    {T:.4f} °C")
+        print(f"  pH:                 {pH:.4f}")
+        print(f"  Feed Rate 1 (F1):   {F1:.4f}")
+        print(f"  Feed Rate 2 (F2):   {F2:.4f}")
+        print(f"  Feed Rate 3 (F3):   {F3:.4f}")
+        print(f"\nTotal Consumed Cost:   {self.total_cost:,.0f} EUR")
+        print(f"Final Pilot Yield:     {final_yield:.6f}")
+        print(f"\nCSV Log:               {self.csv_path}")
+        print("="*80 + "\n")
+
+logger = ExperimentLogger()
+
+##====================================================================================
+## BIOREACTOR API CLIENT
+##====================================================================================
+
+print("\n[INITIALIZING] Connecting to Bioreactor API...")
+bio_client = BioreactorClient()
+bio_client.login()
+print("[SUCCESS] Connected and authenticated to Bioreactor API.\n")
+
+##====================================================================================
+## UTILITY FUNCTIONS
+##====================================================================================
+
+def run_single_experiment(recipe: np.ndarray, scale: str) -> Tuple[float, float]:
+    """
+    Run a single experiment via the API and log results.
+    Returns: (yield_value, cost)
+    """
+    T, pH, F1, F2, F3 = recipe
+    result = bio_client.run(scale, T=T, pH=pH, F1=F1, F2=F2, F3=F3)
+    #print(f"\n[DEBUG] API Response für {scale}: {result}\n")
+    # Extract yield from the API response
+    yield_val = result.get('Y', 0.0)
+    cost = SCALE_COSTS[scale]
+    
+    logger.log_experiment(scale, recipe.tolist() if isinstance(recipe, np.ndarray) else recipe, cost, yield_val)
+    
+    return yield_val, cost
+
+def tensor_to_recipe(X_tensor: torch.Tensor, step: int, fixed_params: Dict[str, float]) -> np.ndarray:
+    """
+    Convert a tensor of optimized parameters to a full recipe array.
+    X_tensor: tensor of optimized parameters (depends on step)
+    step: 1, 2, or 3
+    fixed_params: dict with previously fixed parameters (T, pH)
+    Returns: [T, pH, F1, F2, F3] numpy array
+    """
+    recipe = np.array([
+        fixed_params.get('T', BASELINE_PARAMS['T']),
+        fixed_params.get('pH', BASELINE_PARAMS['pH']),
+        fixed_params.get('F1', BASELINE_PARAMS['F1']),
+        fixed_params.get('F2', BASELINE_PARAMS['F2']),
+        fixed_params.get('F3', BASELINE_PARAMS['F3']),
+    ])
+    
+    # Handle both 1D and 0D tensors
+    if X_tensor.dim() == 0:
+        # Scalar tensor
+        if step == 1:
+            recipe[0] = X_tensor.item()  # Set T
+        elif step == 2:
+            recipe[1] = X_tensor.item()  # Set pH
+    else:
+        # 1D tensor
+        if step == 1:
+            recipe[0] = X_tensor[0].item()  # Set T
+        elif step == 2:
+            recipe[1] = X_tensor[0].item()  # Set pH
+        elif step == 3:
+            recipe[2] = X_tensor[0].item()  # Set F1
+            recipe[3] = X_tensor[1].item()  # Set F2
+            recipe[4] = X_tensor[2].item()  # Set F3
+    
+    return recipe
+
+def get_step_bounds(step: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Get parameter bounds for a specific optimization step."""
+    if step == 1:
+        # Optimize T only
+        bounds = torch.tensor([
+            [BOUNDS['T'][0]],
+            [BOUNDS['T'][1]],
+        ])
+    elif step == 2:
+        # Optimize pH only
+        bounds = torch.tensor([
+            [BOUNDS['pH'][0]],
+            [BOUNDS['pH'][1]],
+        ])
+    elif step == 3:
+        # Optimize F1, F2, F3
+        bounds = torch.tensor([
+            [BOUNDS['F1'][0], BOUNDS['F2'][0], BOUNDS['F3'][0]],
+            [BOUNDS['F1'][1], BOUNDS['F2'][1], BOUNDS['F3'][1]],
+        ])
+    else:
+        raise ValueError(f"Invalid step: {step}")
+    
+    return bounds
+
+def run_initial_sampling(step: int, fixed_params: Dict[str, float]) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Run initial random sampling for training BO model.
+    Returns: (X, Y) tensors where X is [N, D] and Y is [N, 1]
+    """
+    print(f"\n>>> Initial Sampling for Step {step}...")
+    
+    X_list = []
+    Y_list = []
+    
+    bounds = get_step_bounds(step)
+    dim = bounds.shape[1]
+    
+    # Sample from each scale sequentially
+    for scale in ['micro', 'bench']:
+        n_samples = INITIAL_SAMPLES[scale]
+        if n_samples == 0:
+            continue
+        
+        print(f"    Sampling {n_samples} experiments at {scale} scale...")
+        
+        # Generate random samples
+        for _ in range(n_samples):
+            x_opt = torch.rand(1, dim) * (bounds[1] - bounds[0]) + bounds[0]
+            x_opt = x_opt.squeeze(0)  # Make it [dim]
+            recipe = tensor_to_recipe(x_opt, step, fixed_params)
+            
+            # Run experiment
+            yield_val, _ = run_single_experiment(recipe, scale)
+            
+            # Store data
+            X_list.append(x_opt)
+            Y_list.append(torch.tensor(yield_val))
+    
+    if len(X_list) == 0:
+        raise ValueError(f"No samples collected in initial sampling for step {step}")
+    
+    # Stack into tensors with proper dimensions
+    X = torch.stack(X_list)  # [N, dim]
+    Y = torch.stack(Y_list).unsqueeze(-1)  # [N, 1]
+    
+    print(f"    Initial sampling complete. Collected {len(X_list)} samples.")
+    
+    return X, Y
+
+def fit_multi_fidelity_model(X: torch.Tensor, Y: torch.Tensor) -> SingleTaskGP:
+    """
+    Fit a Gaussian Process model.
+    X: [N, D] tensor of parameter values (fidelity information stored separately)
+    Y: [N, 1] tensor of observations
+    """
+    # Ensure X is 2D [N, D]
+    if X.dim() == 1:
+        X = X.unsqueeze(-1)
+    
+    # Ensure Y is 2D [N, 1]
+    if Y.dim() == 1:
+        Y = Y.unsqueeze(-1)
+    
+    # Normalize data for better GP training
+    Y_mean = Y.mean()
+    Y_std = Y.std()
+    if Y_std < 1e-6:
+        Y_std = torch.tensor(1.0)
+    Y_norm = (Y - Y_mean) / Y_std
+    
+    # Use standard SingleTaskGP
+    model = SingleTaskGP(X, Y_norm)
+    mll = gpytorch.mlls.ExactMarginalLogLikelihood(model.likelihood, model)
+    
+    # Fit the model
+    fit_gpytorch_mll(mll)
+    
+    # Store normalization for later use
+    model.Y_mean = Y_mean
+    model.Y_std = Y_std
+    
+    return model
+
+def get_next_candidates(model: SingleTaskGP, 
+                       bounds: torch.Tensor, 
+                       X: torch.Tensor,
+                       step: int) -> Tuple[torch.Tensor, str]:
+    """
+    Use cost-aware acquisition function to suggest next candidates.
+    Returns: (best_x, suggested_scale)
+    """
+    device = X.device
+    dim = bounds.shape[1]
+    
+    # Find best observed value
+    try:
+        best_f = X[:, 0].max().item() if dim > 0 else 0
+    except:
+        best_f = 0
+    
+    # Create acquisition function (qEI maximizes by default)
+    acq_func = qExpectedImprovement(model, best_f)
+    
+    # Evaluate at different fidelity levels to make cost-aware decisions
+    best_acq_value = -float('inf')
+    best_candidate = None
+    best_scale = None
+    
+    for scale in ['micro', 'bench', 'pilot']:
+        # Optimize acquisition function for this scale
+        try:
+            candidates, acq_values = optimize_acqf(
+                acq_function=acq_func,
+                bounds=bounds,
+                q=1,
+                num_restarts=5,
+                raw_samples=N_CANDIDATES,
+                options={"seed": np.random.randint(0, 1000000)},
+            )
+            
+            acq_value = acq_values.max().item()
+            
+            # Weight by cost: prefer cheaper scales for exploration
+            cost_factor = 1.0 / SCALE_COSTS[scale]
+            weighted_acq = acq_value * cost_factor
+            
+            if weighted_acq > best_acq_value:
+                best_acq_value = weighted_acq
+                best_candidate = candidates.squeeze(0)
+                best_scale = scale
+        except Exception as e:
+            print(f"      Warning: Acquisition optimization failed for {scale}: {e}")
+            continue
+    
+    if best_candidate is None:
+        # Fallback: random candidate
+        best_candidate = torch.rand(dim, device=device) * (bounds[1] - bounds[0]) + bounds[0]
+        best_scale = 'micro'
+    
+    return best_candidate, best_scale
+
+def run_bo_loop(step: int, fixed_params: Dict[str, float]) -> Tuple[Dict[str, float], np.ndarray]:
+    """
+    Execute one complete BO optimization loop.
+    Returns: (fixed_params_updated, best_recipe)
+    """
+    print(f"\n" + "="*80)
+    print(f"STEP {step}: BAYESIAN OPTIMIZATION LOOP")
+    print("="*80)
+    
+    bounds = get_step_bounds(step)
+    
+    # Initial sampling
+    X, Y = run_initial_sampling(step, fixed_params)
+    
+    # BO iterations
+    n_iterations = BO_ITERATIONS[f'step{step}']
+    
+    print(f"\n>>> Starting BO iterations (max {n_iterations})...")
+    
+    for iteration in range(n_iterations):
+        # Check budget
+        if logger.total_cost >= EXPLORATION_BUDGET:
+            print(f"    Budget exhausted. Stopping optimization.")
+            break
+        
+        # Fit model
+        model = fit_multi_fidelity_model(X, Y)
+        
+        # Get next candidate
+        x_next, suggested_scale = get_next_candidates(model, bounds, X, step)
+        
+        # Construct full recipe
+        recipe = tensor_to_recipe(x_next, step, fixed_params)
+        
+        # Run experiment
+        print(f"  Iteration {iteration + 1}/{n_iterations}: Suggesting {suggested_scale}...")
+        yield_val, cost = run_single_experiment(recipe, suggested_scale)
+        
+        # Update data - ensure proper dimensions
+        x_next_2d = x_next.unsqueeze(0) if x_next.dim() == 1 else x_next  # [1, dim]
+        y_next_2d = torch.tensor([[yield_val]])  # [1, 1]
+        
+        X = torch.cat([X, x_next_2d])
+        Y = torch.cat([Y, y_next_2d])
+    
+    # Find best sample from current step
+    best_idx = Y.argmax(dim=0).item()
+    best_x = X[best_idx]
+    best_yield = Y[best_idx].item()
+    
+    # Update fixed parameters
+    fixed_params_new = fixed_params.copy()
+    if step == 1:
+        fixed_params_new['T'] = best_x[0].item()
+        param_name = 'T'
+        param_value = fixed_params_new['T']
+    elif step == 2:
+        fixed_params_new['pH'] = best_x[0].item()
+        param_name = 'pH'
+        param_value = fixed_params_new['pH']
+    elif step == 3:
+        fixed_params_new['F1'] = best_x[0].item()
+        fixed_params_new['F2'] = best_x[1].item()
+        fixed_params_new['F3'] = best_x[2].item()
+        param_name = 'F1, F2, F3'
+        param_value = f"({best_x[0].item():.4f}, {best_x[1].item():.4f}, {best_x[2].item():.4f})"
+    
+    best_recipe = tensor_to_recipe(best_x, step, fixed_params_new)
+    
+    print(f"\n>>> Step {step} Complete!")
+    print(f"    Best {param_name} optimized: {param_value}")
+    print(f"    Best yield found: {best_yield:.6f}")
+    
+    return fixed_params_new, best_recipe
+
+##====================================================================================
+## MAIN EXECUTION
+##====================================================================================
+
+def main():
+    """Main execution function."""
+    print("\n" + "="*80)
+    print("MULTI-FIDELITY BAYESIAN OPTIMIZATION FOR BIOREACTOR YIELD MAXIMIZATION")
+    print("="*80)
+    
+    fixed_params = BASELINE_PARAMS.copy()
+    
+    # Step 1: Optimize Temperature
+    fixed_params, best_recipe_step1 = run_bo_loop(step=1, fixed_params=fixed_params)
+    
+    # Step 2: Optimize pH
+    fixed_params, best_recipe_step2 = run_bo_loop(step=2, fixed_params=fixed_params)
+    
+    # Step 3: Optimize Feed Rates
+    fixed_params, best_recipe_step3 = run_bo_loop(step=3, fixed_params=fixed_params)
+    
+    # Final Step: Execute one pilot run for validation
+    print(f"\n" + "="*80)
+    print("FINAL VALIDATION PILOT RUN")
+    print("="*80)
+    
+    final_recipe = np.array([
+        fixed_params['T'],
+        fixed_params['pH'],
+        fixed_params['F1'],
+        fixed_params['F2'],
+        fixed_params['F3'],
+    ])
+    
+    print(f"\nExecuting final validation run at PILOT scale...")
+    final_yield, final_cost = run_single_experiment(final_recipe, 'pilot')
+    
+    # Print final report
+    logger.print_final_report(final_recipe.tolist(), final_yield)
+    
+    return fixed_params, final_yield, logger.total_cost
+
+if __name__ == '__main__':
+    try:
+        fixed_params, final_yield, total_cost = main()
+        print("\n[SUCCESS] Bayesian Optimization completed successfully!")
+    except Exception as e:
+        print(f"\n[ERROR] Optimization failed: {e}")
+        import traceback
+        traceback.print_exc()
