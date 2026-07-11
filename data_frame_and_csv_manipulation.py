@@ -34,7 +34,15 @@ def appendToCSV(fileName, scale, T, pH, F1, F2, F3, result):
         "Y": result["Y"],
         "cost_eur": result["cost_eur"],
     }], columns=COLUMNS).set_index("id")
-    write_header = not os.path.exists(fileName)
+
+    if os.path.exists(fileName):
+        # match any extra columns (e.g. measured_pilot_Y) added to the file since creation
+        existing_cols = pd.read_csv(fileName, index_col="id", nrows=0).columns
+        row = row.reindex(columns=existing_cols)
+        write_header = False
+    else:
+        write_header = True
+
     row.to_csv(fileName, mode="a", header=write_header)
 
 def getXyFromDataFrame(df):
