@@ -31,7 +31,7 @@ for scale in scales:
         X_fit, y_fit = X_fit[idx], y_fit[idx]
 
     pipe = setupPipeline()
-    pipe.named_steps['gp'].n_restarts_optimizer = 10
+    pipe.named_steps['gp'].n_restarts_optimizer = 20
     pipe.fit(X_fit, y_fit)
 
     # sample random points across full input space
