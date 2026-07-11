@@ -5,8 +5,8 @@ import numpy as np
 import plotly.express as px
 from data_frame_and_csv_manipulation import getDataFrameFromCSV
 
-# CSV_PATH = 'mlme26_group08_2026-07-01T16-59-36.csv'
-CSV_PATH = 'Task03/micro_data_ei(0.01)_04.csv'
+CSV_PATH = 'mlme26_group08_2026-07-10T13-42-11.csv'
+# CSV_PATH = 'Task03/pilot_data_ei(0.01)_01.csv'
 
 df = getDataFrameFromCSV(CSV_PATH)
 
