@@ -71,31 +71,40 @@ BASELINE_PARAMS = {
 # ==================== BO LOOP HYPERPARAMETERS ====================
 # Initial samples per fidelity level (Step 1, 2, 3)
 INITIAL_SAMPLES = {
-    'micro': 15,                  # Initial micro scale samples
+    'micro': 10,                  # Initial micro scale samples
     'bench': 0,                  # Initial bench scale samples
     'pilot': 0,                  # Initial pilot scale samples (use for validation only)
 }
 
 # Number of optimization iterations per step
 BO_ITERATIONS = {
-    'step1': 40,                  # Step 1a (T optimization, erster Durchlauf) iterations
-    'step1b':30,                 # Step 1b (T re-optimization nach pH) iterations
-    'step2': 20,                  # Step 2 (pH optimization) iterations
+    'step1': 35,                  # Step 1a (T optimization, erster Durchlauf) iterations
+    'step1b':10,                 # Step 1b (T re-optimization nach pH) iterations
+    'step2': 25,                  # Step 2a (pH optimization, erster Durchlauf) iterations
+    #'step2b': 10,                 # Step 2b (pH re-optimization nach zweitem T-Loop) iterations
     'step3': 30,                  # Step 3 (F1, F2, F3 optimization) iterations
 }
 
 # Bandbreite für die initiale Stichprobe von Step 1b um das T-Optimum aus Step 1a
 # (Anteil der vollen Bound-Breite, z.B. 0.15 = ±7.5% des Bereichs um das Zentrum)
-STEP1B_INIT_SPREAD_FRACTION = 0.15
+STEP1B_INIT_SPREAD_FRACTION = 0.1
+
+# Bandbreite für die initiale Stichprobe von Step 2b um das pH-Optimum aus Step 2
+STEP2B_INIT_SPREAD_FRACTION = 0.1
 
 # Candidates evaluated per acquisition function call
-N_CANDIDATES = 2000               # Number of candidate points to evaluate
+N_CANDIDATES = 4000               # Number of candidate points to evaluate
 
 # ==================== ACQUISITION FUNCTION SETTINGS ====================
 ACQUISITION_BETA = 0.2          # Temperature for expected improvement (higher = more explorative)
 
+# Stärke der Randbestrafung für Step 3 (F1, F2, F3): wird vom Acquisition-Wert
+# abgezogen, je näher ein Kandidat an 0 oder 2 liegt (0 = Mitte des Bereichs).
+# Höherer Wert = Extremwerte werden stärker gemieden.
+BOUNDARY_PENALTY_STRENGTH = 2.5
+
 # ==================== COST-AWARE SAMPLING STRATEGY ====================
-COST_SCALING_FACTOR = 0.5       # Scaling factor for cost-aware weighting
+COST_SCALING_FACTOR = 2.5       # Scaling factor for cost-aware weighting
 
 print(f"\n[BUDGET]")
 print(f"  Total Budget:           {TOTAL_BUDGET:,} EUR")
@@ -371,6 +380,29 @@ def fit_multi_fidelity_model(X: torch.Tensor, Y: torch.Tensor) -> SingleTaskGP:
     
     return model
 
+def make_boundary_penalized_acqf(acq_func, bounds: torch.Tensor, penalty_strength: float):
+    """
+    Wrappt eine Acquisition-Function so, dass Kandidaten nahe den Bounds-Grenzen
+    (z.B. F1/F2/F3 nahe 0 oder 2) einen niedrigeren Wert erhalten.
+    Die Strafe wird additiv abgezogen (funktioniert unabhängig vom Vorzeichen
+    des ursprünglichen Acquisition-Werts).
+    """
+    low = bounds[0]
+    high = bounds[1]
+
+    def penalized_acqf(X):
+        base_value = acq_func(X)
+        x = X[..., 0, :]  # [batch, d] - der eine Kandidatpunkt (q=1)
+        norm = (x - low) / (high - low)  # in [0, 1]
+        # 1.0 in der Mitte, 0.0 an den Rändern (0 oder 2)
+        edge_closeness = (4.0 * norm * (1.0 - norm)).clamp(min=0.0, max=1.0)
+        edge_closeness = edge_closeness.mean(dim=-1)  # Mittel über F1, F2, F3
+        penalty = penalty_strength * (1.0 - edge_closeness)
+        return base_value - penalty
+
+    return penalized_acqf
+
+
 def get_next_candidates(model: SingleTaskGP, 
                        bounds: torch.Tensor, 
                        X: torch.Tensor,
@@ -388,6 +420,10 @@ def get_next_candidates(model: SingleTaskGP,
     
 # UCB gewichtet Mittelwert stärker als Unsicherheit -> exploitativer
     acq_func = qUpperConfidenceBound(model, beta=ACQUISITION_BETA)
+    
+    # Bei Step 3 (F1, F2, F3) Extremwerte nahe 0/2 zusätzlich bestrafen
+    if step == 3:
+        acq_func = make_boundary_penalized_acqf(acq_func, bounds, BOUNDARY_PENALTY_STRENGTH)
     
     # Evaluate at different fidelity levels to make cost-aware decisions
     best_acq_value = -float('inf')
@@ -529,16 +565,29 @@ def main():
     # Step 2: Optimize pH
     fixed_params, best_recipe_step2 = run_bo_loop(step=2, fixed_params=fixed_params)
     
-   # Step 1b: Re-optimize Temperature with optimal pH fixed
+# Step 1b: Re-optimize Temperature with optimal pH fixed
     # (neu initialisiert, konzentriert um das T-Optimum aus Step 1a)
     T_optimum_step1a = torch.tensor([fixed_params['T']])
     fixed_params, best_recipe_step1b = run_bo_loop(
-        step=1,
+       step=1,
         fixed_params=fixed_params,
         n_iterations=BO_ITERATIONS['step1b'],
-        init_center=T_optimum_step1a,
+       init_center=T_optimum_step1a,
         init_spread_fraction=STEP1B_INIT_SPREAD_FRACTION,
     )
+    
+    # Step 2b: Re-optimize pH with dem zweiten T-Optimum fixiert
+    # (neu initialisiert, konzentriert um das pH-Optimum aus Step 2)
+   # pH_optimum_step2 = torch.tensor([fixed_params['pH']])
+   # fixed_params, best_recipe_step2b = run_bo_loop(
+   #     step=2,
+   #     fixed_params=fixed_params,
+   #     n_iterations=BO_ITERATIONS['step2b'],
+   #     init_center=pH_optimum_step2,
+   #     init_spread_fraction=STEP2B_INIT_SPREAD_FRACTION,
+    #)
+    
+    # Step 3: Optimize Feed Rates
     
     # Step 3: Optimize Feed Rates
     fixed_params, best_recipe_step3 = run_bo_loop(step=3, fixed_params=fixed_params)
