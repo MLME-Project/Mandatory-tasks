@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 # BoTorch imports
 import botorch
 from botorch.models import SingleTaskGP
-from botorch.acquisition import qExpectedImprovement
+from botorch.acquisition import qExpectedImprovement, qUpperConfidenceBound
 from botorch.optim import optimize_acqf
 from botorch.fit import fit_gpytorch_mll
 import gpytorch
@@ -71,23 +71,28 @@ BASELINE_PARAMS = {
 # ==================== BO LOOP HYPERPARAMETERS ====================
 # Initial samples per fidelity level (Step 1, 2, 3)
 INITIAL_SAMPLES = {
-    'micro': 10,                  # Initial micro scale samples
+    'micro': 15,                  # Initial micro scale samples
     'bench': 0,                  # Initial bench scale samples
     'pilot': 0,                  # Initial pilot scale samples (use for validation only)
 }
 
 # Number of optimization iterations per step
 BO_ITERATIONS = {
-    'step1': 40,                  # Step 1 (T optimization) iterations
-    'step2': 40,                  # Step 2 (pH optimization) iterations
-    'step3': 20,                  # Step 3 (F1, F2, F3 optimization) iterations
+    'step1': 40,                  # Step 1a (T optimization, erster Durchlauf) iterations
+    'step1b':30,                 # Step 1b (T re-optimization nach pH) iterations
+    'step2': 20,                  # Step 2 (pH optimization) iterations
+    'step3': 30,                  # Step 3 (F1, F2, F3 optimization) iterations
 }
+
+# Bandbreite für die initiale Stichprobe von Step 1b um das T-Optimum aus Step 1a
+# (Anteil der vollen Bound-Breite, z.B. 0.15 = ±7.5% des Bereichs um das Zentrum)
+STEP1B_INIT_SPREAD_FRACTION = 0.15
 
 # Candidates evaluated per acquisition function call
 N_CANDIDATES = 2000               # Number of candidate points to evaluate
 
 # ==================== ACQUISITION FUNCTION SETTINGS ====================
-ACQUISITION_BETA = 5.0          # Temperature for expected improvement (higher = more conservative)
+ACQUISITION_BETA = 0.2          # Temperature for expected improvement (higher = more explorative)
 
 # ==================== COST-AWARE SAMPLING STRATEGY ====================
 COST_SCALING_FACTOR = 0.5       # Scaling factor for cost-aware weighting
@@ -273,9 +278,13 @@ def get_step_bounds(step: int) -> Tuple[torch.Tensor, torch.Tensor]:
     
     return bounds
 
-def run_initial_sampling(step: int, fixed_params: Dict[str, float]) -> Tuple[torch.Tensor, torch.Tensor]:
+def run_initial_sampling(step: int, fixed_params: Dict[str, float],
+                          center: torch.Tensor = None,
+                          spread_fraction: float = None) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Run initial random sampling for training BO model.
+    Falls 'center' gesetzt ist, wird um dieses Zentrum herum gesampelt
+    (Breite = spread_fraction * volle Bound-Breite), statt über den vollen Bereich.
     Returns: (X, Y) tensors where X is [N, D] and Y is [N, 1]
     """
     print(f"\n>>> Initial Sampling for Step {step}...")
@@ -285,6 +294,16 @@ def run_initial_sampling(step: int, fixed_params: Dict[str, float]) -> Tuple[tor
     
     bounds = get_step_bounds(step)
     dim = bounds.shape[1]
+    
+    # Sampling-Bereich bestimmen: entweder voller Bound-Bereich, oder eingeengt um 'center'
+    if center is not None:
+        half_width = spread_fraction * (bounds[1] - bounds[0])
+        sample_lower = torch.clamp(center - half_width, min=bounds[0])
+        sample_upper = torch.clamp(center + half_width, max=bounds[1])
+        print(f"    Sampling um Zentrum {center.tolist()} mit Breite {spread_fraction}")
+    else:
+        sample_lower = bounds[0]
+        sample_upper = bounds[1]
     
     # Sample from each scale sequentially
     for scale in ['micro', 'bench']:
@@ -296,7 +315,7 @@ def run_initial_sampling(step: int, fixed_params: Dict[str, float]) -> Tuple[tor
         
         # Generate random samples
         for _ in range(n_samples):
-            x_opt = torch.rand(1, dim) * (bounds[1] - bounds[0]) + bounds[0]
+            x_opt = torch.rand(1, dim) * (sample_upper - sample_lower) + sample_lower
             x_opt = x_opt.squeeze(0)  # Make it [dim]
             recipe = tensor_to_recipe(x_opt, step, fixed_params)
             
@@ -367,11 +386,8 @@ def get_next_candidates(model: SingleTaskGP,
     # Find best observed value (im normalisierten Raum des Modells)
     best_f = ((Y.max() - model.Y_mean) / model.Y_std).item()
     
-    # Create acquisition function (qEI maximizes by default)
-    acq_func = qExpectedImprovement(model, best_f)
-    
-    # Create acquisition function (qEI maximizes by default)
-    acq_func = qExpectedImprovement(model, best_f)
+# UCB gewichtet Mittelwert stärker als Unsicherheit -> exploitativer
+    acq_func = qUpperConfidenceBound(model, beta=ACQUISITION_BETA)
     
     # Evaluate at different fidelity levels to make cost-aware decisions
     best_acq_value = -float('inf')
@@ -411,9 +427,15 @@ def get_next_candidates(model: SingleTaskGP,
     
     return best_candidate, best_scale
 
-def run_bo_loop(step: int, fixed_params: Dict[str, float]) -> Tuple[Dict[str, float], np.ndarray]:
+def run_bo_loop(step: int, fixed_params: Dict[str, float],
+                 n_iterations: int = None,
+                 init_center: torch.Tensor = None,
+                 init_spread_fraction: float = None) -> Tuple[Dict[str, float], np.ndarray]:
     """
     Execute one complete BO optimization loop.
+    n_iterations: überschreibt die Standard-Iterationsanzahl aus BO_ITERATIONS, falls gesetzt.
+    init_center / init_spread_fraction: falls gesetzt, wird die initiale Stichprobe
+    um dieses Zentrum herum gezogen statt über den vollen Suchraum.
     Returns: (fixed_params_updated, best_recipe)
     """
     print(f"\n" + "="*80)
@@ -423,10 +445,11 @@ def run_bo_loop(step: int, fixed_params: Dict[str, float]) -> Tuple[Dict[str, fl
     bounds = get_step_bounds(step)
     
     # Initial sampling
-    X, Y = run_initial_sampling(step, fixed_params)
+    X, Y = run_initial_sampling(step, fixed_params, center=init_center, spread_fraction=init_spread_fraction)
     
     # BO iterations
-    n_iterations = BO_ITERATIONS[f'step{step}']
+    if n_iterations is None:
+        n_iterations = BO_ITERATIONS[f'step{step}']
     
     print(f"\n>>> Starting BO iterations (max {n_iterations})...")
     
@@ -498,11 +521,24 @@ def main():
     
     fixed_params = BASELINE_PARAMS.copy()
     
+    fixed_params = BASELINE_PARAMS.copy()
+    
     # Step 1: Optimize Temperature
     fixed_params, best_recipe_step1 = run_bo_loop(step=1, fixed_params=fixed_params)
     
     # Step 2: Optimize pH
     fixed_params, best_recipe_step2 = run_bo_loop(step=2, fixed_params=fixed_params)
+    
+   # Step 1b: Re-optimize Temperature with optimal pH fixed
+    # (neu initialisiert, konzentriert um das T-Optimum aus Step 1a)
+    T_optimum_step1a = torch.tensor([fixed_params['T']])
+    fixed_params, best_recipe_step1b = run_bo_loop(
+        step=1,
+        fixed_params=fixed_params,
+        n_iterations=BO_ITERATIONS['step1b'],
+        init_center=T_optimum_step1a,
+        init_spread_fraction=STEP1B_INIT_SPREAD_FRACTION,
+    )
     
     # Step 3: Optimize Feed Rates
     fixed_params, best_recipe_step3 = run_bo_loop(step=3, fixed_params=fixed_params)
