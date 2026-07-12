@@ -20,10 +20,11 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 # BoTorch imports
 import botorch
-from botorch.models import SingleTaskGP
-from botorch.acquisition import qExpectedImprovement, qUpperConfidenceBound
+from botorch.models import MultiTaskGP 
+from botorch.acquisition import qUpperConfidenceBound
 from botorch.optim import optimize_acqf
 from botorch.fit import fit_gpytorch_mll
+from botorch.acquisition.objective import ScalarizedPosteriorTransform
 import gpytorch
 
 # Suppress warnings for cleaner output
@@ -41,7 +42,7 @@ print("="*80)
 
 # ==================== EXPERIMENT SCALE CONFIGURATION ====================
 SCALES = ['micro', 'bench', 'pilot']
-SCALE_TO_FIDELITY = {'micro': 0.0, 'bench': 0.5, 'pilot': 1.0}
+SCALE_TO_FIDELITY = {'micro': 0.0, 'bench': 1.0, 'pilot': 2.0}
 SCALE_COSTS = {'micro': 10, 'bench': 200, 'pilot': 2000}
 
 # ==================== BUDGET CONSTRAINTS ====================
@@ -71,26 +72,20 @@ BASELINE_PARAMS = {
 # ==================== BO LOOP HYPERPARAMETERS ====================
 # Initial samples per fidelity level (Step 1, 2, 3)
 INITIAL_SAMPLES = {
-    'micro': 15,                  # Initial micro scale samples
-    'bench': 0,                  # Initial bench scale samples
-    'pilot': 0,                  # Initial pilot scale samples (use for validation only)
+    'micro': 3,                   # Initial micro scale samples
+    'bench': 3,                   # NEU: Zwingt das Modell, Bench-Daten zu sammeln (vorher 0)
+    'pilot': 0,                   # Initial pilot scale samples (use for validation only)
 }
 
 # Number of optimization iterations per step
 BO_ITERATIONS = {
-    'step1': 20,                  # Step 1a (T optimization, erster Durchlauf) iterations
-    'step1b':10,                 # Step 1b (T re-optimization nach pH) iterations
+    'step1': 20,                  # Step 1 (T optimization) iterations
     'step2': 10,                  # Step 2 (pH optimization) iterations
-    'step3': 30,                  # Step 3 (F1, F2, F3 optimization) iterations
+    'step3': 20,                  # NEU: Reduziert von 30 auf 20, um Budget für Bench-Runs freizumachen
 }
 
-# Bandbreite für die initiale Stichprobe von Step 1b um das T-Optimum aus Step 1a
-# (Anteil der vollen Bound-Breite, z.B. 0.15 = ±7.5% des Bereichs um das Zentrum)
-STEP1B_INIT_SPREAD_FRACTION = 0.2
-
 # Candidates evaluated per acquisition function call
-N_CANDIDATES = 4000               # Number of candidate points to evaluate
-
+N_CANDIDATES = 10000              # NEU: Erhöht von 4000 auf 10000 für feinere interne Suche
 # ==================== ACQUISITION FUNCTION SETTINGS ====================
 ACQUISITION_BETA = 0.2          # Temperature for expected improvement (higher = more explorative)
 
@@ -313,17 +308,21 @@ def run_initial_sampling(step: int, fixed_params: Dict[str, float],
         
         print(f"    Sampling {n_samples} experiments at {scale} scale...")
         
-        # Generate random samples
+# Generate random samples (innerhalb von run_initial_sampling)
         for _ in range(n_samples):
             x_opt = torch.rand(1, dim) * (sample_upper - sample_lower) + sample_lower
-            x_opt = x_opt.squeeze(0)  # Make it [dim]
+            x_opt = x_opt.squeeze(0)  # [dim]
             recipe = tensor_to_recipe(x_opt, step, fixed_params)
             
             # Run experiment
             yield_val, _ = run_single_experiment(recipe, scale)
             
+            # NEU: Fidelity anfügen
+            fidelity_val = SCALE_TO_FIDELITY[scale]
+            x_with_fidelity = torch.cat([x_opt, torch.tensor([fidelity_val])])
+            
             # Store data
-            X_list.append(x_opt)
+            X_list.append(x_with_fidelity)
             Y_list.append(torch.tensor(yield_val))
     
     if len(X_list) == 0:
@@ -337,69 +336,62 @@ def run_initial_sampling(step: int, fixed_params: Dict[str, float],
     
     return X, Y
 
-def fit_multi_fidelity_model(X: torch.Tensor, Y: torch.Tensor) -> SingleTaskGP:
+def fit_multi_fidelity_model(X: torch.Tensor, Y: torch.Tensor) -> MultiTaskGP:
     """
-    Fit a Gaussian Process model.
-    X: [N, D] tensor of parameter values (fidelity information stored separately)
+    Fit a Multi-Task Gaussian Process model.
+    X: [N, D+1] tensor of parameter values (letzte Spalte ist Fidelity: 0.0, 0.5, oder 1.0)
     Y: [N, 1] tensor of observations
     """
-    # Ensure X is 2D [N, D]
     if X.dim() == 1:
         X = X.unsqueeze(-1)
-    
-    # Ensure Y is 2D [N, 1]
     if Y.dim() == 1:
         Y = Y.unsqueeze(-1)
     
-    # Normalize data for better GP training
     Y_mean = Y.mean()
     Y_std = Y.std()
     if Y_std < 1e-6:
         Y_std = torch.tensor(1.0)
     Y_norm = (Y - Y_mean) / Y_std
     
-    # Use standard SingleTaskGP
-    model = SingleTaskGP(X, Y_norm)
+    # Nutze MultiTaskGP, bei dem die letzte Spalte die Skala definiert
+    model = MultiTaskGP(X, Y_norm, task_feature=-1, all_tasks=[0, 1, 2]) 
     mll = gpytorch.mlls.ExactMarginalLogLikelihood(model.likelihood, model)
     
-    # Fit the model
     fit_gpytorch_mll(mll)
     
-    # Store normalization for later use
     model.Y_mean = Y_mean
     model.Y_std = Y_std
     
     return model
 
-def get_next_candidates(model: SingleTaskGP, 
+def get_next_candidates(model: MultiTaskGP, 
                        bounds: torch.Tensor, 
                        X: torch.Tensor,
                        Y: torch.Tensor,
                        step: int) -> Tuple[torch.Tensor, str]:
-    """
-    Use cost-aware acquisition function to suggest next candidates.
-    Returns: (best_x, suggested_scale)
-    """
     device = X.device
     dim = bounds.shape[1]
     
-    # Find best observed value (im normalisierten Raum des Modells)
-    best_f = ((Y.max() - model.Y_mean) / model.Y_std).item()
+# Wir definieren eine Transformation, die den Output (Yield) extrahiert
+    obj = ScalarizedPosteriorTransform(weights=torch.tensor([1.0], device=X.device))
     
-# UCB gewichtet Mittelwert stärker als Unsicherheit -> exploitativer
-    acq_func = qUpperConfidenceBound(model, beta=ACQUISITION_BETA)
+    # Wir übergeben dieses Objekt an die Acquisition Function
+    acq_func = qUpperConfidenceBound(model, beta=ACQUISITION_BETA, posterior_transform=obj) 
     
-    # Evaluate at different fidelity levels to make cost-aware decisions
     best_acq_value = -float('inf')
     best_candidate = None
     best_scale = None
     
     for scale in ['micro', 'bench', 'pilot']:
-        # Optimize acquisition function for this scale
+        fidelity_val = SCALE_TO_FIDELITY[scale]
+        
+        # NEU: Bounds temporär um die Fidelity-Dimension erweitern (fester Wert für diese Skala)
+        scale_bounds = torch.cat([bounds, torch.tensor([[fidelity_val], [fidelity_val]])], dim=1)
+        
         try:
             candidates, acq_values = optimize_acqf(
                 acq_function=acq_func,
-                bounds=bounds,
+                bounds=scale_bounds,
                 q=1,
                 num_restarts=5,
                 raw_samples=N_CANDIDATES,
@@ -408,20 +400,20 @@ def get_next_candidates(model: SingleTaskGP,
             
             acq_value = acq_values.max().item()
             
-            # Weight by cost: prefer cheaper scales for exploration
-            cost_factor = 1.0 / SCALE_COSTS[scale]
+            # NEU: Angepasste Kostenbestrafung durch die Quadratwurzel
+            cost_factor = 1.0 / (SCALE_COSTS[scale] ** 0.5)
             weighted_acq = acq_value * cost_factor
             
             if weighted_acq > best_acq_value:
                 best_acq_value = weighted_acq
-                best_candidate = candidates.squeeze(0)
+                # NEU: Fidelity am Ende abschneiden, damit nur die echten Parameter zurückgegeben werden
+                best_candidate = candidates.squeeze(0)[:dim]
                 best_scale = scale
         except Exception as e:
             print(f"      Warning: Acquisition optimization failed for {scale}: {e}")
             continue
     
     if best_candidate is None:
-        # Fallback: random candidate
         best_candidate = torch.rand(dim, device=device) * (bounds[1] - bounds[0]) + bounds[0]
         best_scale = 'micro'
     
@@ -468,20 +460,28 @@ def run_bo_loop(step: int, fixed_params: Dict[str, float],
         # Construct full recipe
         recipe = tensor_to_recipe(x_next, step, fixed_params)
         
-        # Run experiment
+# Run experiment (innerhalb von run_bo_loop)
         print(f"  Iteration {iteration + 1}/{n_iterations}: Suggesting {suggested_scale}...")
         yield_val, cost = run_single_experiment(recipe, suggested_scale)
         
+        # NEU: Fidelity an den neuen Punkt anfügen, bevor er gespeichert wird
+        fidelity_val = SCALE_TO_FIDELITY[suggested_scale]
+        x_next_with_fidelity = torch.cat([x_next, torch.tensor([fidelity_val])])
+        
         # Update data - ensure proper dimensions
-        x_next_2d = x_next.unsqueeze(0) if x_next.dim() == 1 else x_next  # [1, dim]
+        x_next_2d = x_next_with_fidelity.unsqueeze(0) # [1, dim+1]
         y_next_2d = torch.tensor([[yield_val]])  # [1, 1]
         
         X = torch.cat([X, x_next_2d])
         Y = torch.cat([Y, y_next_2d])
     
-    # Find best sample from current step
+# Find best sample from current step
     best_idx = Y.argmax(dim=0).item()
-    best_x = X[best_idx]
+    
+    # NEU: Schneide die letzte Spalte (Fidelity) ab ([:-1]), 
+    # damit nur die echten Parameterwerte gespeichert werden!
+    best_x = X[best_idx, :-1] 
+    
     best_yield = Y[best_idx].item()
     
     # Update fixed parameters
@@ -521,10 +521,7 @@ def main():
     
     fixed_params = BASELINE_PARAMS.copy()
     
-    fixed_params = BASELINE_PARAMS.copy()
-
-    # Step 3: Optimize Feed Rates
-    fixed_params, best_recipe_step3 = run_bo_loop(step=3, fixed_params=fixed_params)
+    # 1. KLARE, LINEARE REIHENFOLGE:
     
     # Step 1: Optimize Temperature
     fixed_params, best_recipe_step1 = run_bo_loop(step=1, fixed_params=fixed_params)
@@ -532,20 +529,8 @@ def main():
     # Step 2: Optimize pH
     fixed_params, best_recipe_step2 = run_bo_loop(step=2, fixed_params=fixed_params)
     
-   # Step 1b: Re-optimize Temperature with optimal pH fixed
-    # (neu initialisiert, konzentriert um das T-Optimum aus Step 1a)
-    T_optimum_step1a = torch.tensor([fixed_params['T']])
-    fixed_params, best_recipe_step1b = run_bo_loop(
-        step=1,
-        fixed_params=fixed_params,
-        n_iterations=BO_ITERATIONS['step1b'],
-        init_center=T_optimum_step1a,
-        init_spread_fraction=STEP1B_INIT_SPREAD_FRACTION,
-    )
-
     # Step 3: Optimize Feed Rates
     fixed_params, best_recipe_step3 = run_bo_loop(step=3, fixed_params=fixed_params)
-    
     
     
     # Final Step: Execute one pilot run for validation
