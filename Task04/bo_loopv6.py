@@ -78,18 +78,18 @@ INITIAL_SAMPLES = {
 
 # Number of optimization iterations per step
 BO_ITERATIONS = {
-    'step1': 40,                  # Step 1a (T optimization, erster Durchlauf) iterations
-    'step1b':30,                 # Step 1b (T re-optimization nach pH) iterations
-    'step2': 20,                  # Step 2 (pH optimization) iterations
+    'step1': 20,                  # Step 1a (T optimization, erster Durchlauf) iterations
+    'step1b':10,                 # Step 1b (T re-optimization nach pH) iterations
+    'step2': 10,                  # Step 2 (pH optimization) iterations
     'step3': 30,                  # Step 3 (F1, F2, F3 optimization) iterations
 }
 
 # Bandbreite für die initiale Stichprobe von Step 1b um das T-Optimum aus Step 1a
 # (Anteil der vollen Bound-Breite, z.B. 0.15 = ±7.5% des Bereichs um das Zentrum)
-STEP1B_INIT_SPREAD_FRACTION = 0.15
+STEP1B_INIT_SPREAD_FRACTION = 0.2
 
 # Candidates evaluated per acquisition function call
-N_CANDIDATES = 2000               # Number of candidate points to evaluate
+N_CANDIDATES = 4000               # Number of candidate points to evaluate
 
 # ==================== ACQUISITION FUNCTION SETTINGS ====================
 ACQUISITION_BETA = 0.2          # Temperature for expected improvement (higher = more explorative)
@@ -522,6 +522,9 @@ def main():
     fixed_params = BASELINE_PARAMS.copy()
     
     fixed_params = BASELINE_PARAMS.copy()
+
+    # Step 3: Optimize Feed Rates
+    fixed_params, best_recipe_step3 = run_bo_loop(step=3, fixed_params=fixed_params)
     
     # Step 1: Optimize Temperature
     fixed_params, best_recipe_step1 = run_bo_loop(step=1, fixed_params=fixed_params)
@@ -539,9 +542,11 @@ def main():
         init_center=T_optimum_step1a,
         init_spread_fraction=STEP1B_INIT_SPREAD_FRACTION,
     )
-    
+
     # Step 3: Optimize Feed Rates
     fixed_params, best_recipe_step3 = run_bo_loop(step=3, fixed_params=fixed_params)
+    
+    
     
     # Final Step: Execute one pilot run for validation
     print(f"\n" + "="*80)
