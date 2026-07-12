@@ -72,8 +72,8 @@ BASELINE_PARAMS = {
 # ==================== BO LOOP HYPERPARAMETERS ====================
 # Initial samples per fidelity level (Step 1, 2, 3)
 INITIAL_SAMPLES = {
-    'micro': 10,                   # Initial micro scale samples
-    'bench': 0,                   # NEU: Zwingt das Modell, Bench-Daten zu sammeln (vorher 0)
+    'micro': 3,                   # Initial micro scale samples
+    'bench': 3,                   # NEU: Zwingt das Modell, Bench-Daten zu sammeln (vorher 0)
     'pilot': 0,                   # Initial pilot scale samples (use for validation only)
 }
 
@@ -81,12 +81,12 @@ INITIAL_SAMPLES = {
 BO_ITERATIONS = {
     'step1': 25,                  # Step 1 (T optimization) iterations
     'step2': 25,                  # Step 2 (pH optimization) iterations
-    'step3': 25,                  # NEU: Reduziert von 30 auf 20, um Budget für Bench-Runs freizumache
+    'step3': 20,                  # NEU: Reduziert von 30 auf 20, um Budget für Bench-Runs freizumache
 }
     
 # ==================== ABBRUCHKRITERIEN (EARLY STOPPING) ====================
 # ==================== ABBRUCHKRITERIEN (EARLY STOPPING) ====================
-EARLY_STOP_WINDOW = 5              # Anzahl der zuletzt eingestellten Werte, die betrachtet werden
+EARLY_STOP_WINDOW = 7             # Anzahl der zuletzt eingestellten Werte, die betrachtet werden
 EARLY_STOP_REL_THRESHOLD = 0.002   # 0.2% relative Abweichung vom Durchschnitt der 4 Vorwerte
                                     # -> gilt einheitlich für T, pH und F1/F2/F3
 # ==================== NOTFALL: T-LOOP WIEDERHOLUNG ====================
@@ -95,10 +95,10 @@ EMERGENCY_T_ITERATIONS = 15               # Iterationen für den Notfall-T-Loop 
 # Candidates evaluated per acquisition function call
 N_CANDIDATES = 10000              # NEU: Erhöht von 4000 auf 10000 für feinere interne Suche
 # ==================== ACQUISITION FUNCTION SETTINGS ====================
-ACQUISITION_BETA = 0.4          # Temperature for expected improvement (higher = more explorative)
+ACQUISITION_BETA = 0.2          # Temperature for expected improvement (higher = more explorative)
 
 # ==================== COST-AWARE SAMPLING STRATEGY ====================
-COST_SCALING_FACTOR = 5.5       # Scaling factor for cost-aware weighting
+COST_SCALING_FACTOR = 0.5       # Scaling factor for cost-aware weighting
 
 print(f"\n[BUDGET]")
 print(f"  Total Budget:           {TOTAL_BUDGET:,} EUR")
