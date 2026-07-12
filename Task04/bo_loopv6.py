@@ -85,16 +85,15 @@ BO_ITERATIONS = {
 }
     
 # ==================== ABBRUCHKRITERIEN (EARLY STOPPING) ====================
-EARLY_STOP_WINDOW = 5              # Anzahl Iterationen für die Konvergenzprüfung
-                                    # (5 statt 3, um weniger anfällig für Messrauschen zu sein)
-EARLY_STOP_REL_THRESHOLD = 0.002   # 0.2% relative Änderung -> für T, pH (1D)
-EARLY_STOP_DIST_THRESHOLD = 0.04   # normierte euklidische Distanz -> für F1,F2,F3 (3D)
-EXTRAPOLATION_FACTOR = 1.1         # Multiplikator auf die mittlere Steigung
+# ==================== ABBRUCHKRITERIEN (EARLY STOPPING) ====================
+EARLY_STOP_WINDOW = 5              # Anzahl der zuletzt eingestellten Werte, die betrachtet werden
+EARLY_STOP_REL_THRESHOLD = 0.002   # 0.2% relative Abweichung vom Durchschnitt der 4 Vorwerte
+                                    # -> gilt einheitlich für T, pH und F1/F2/F3
 
 # Candidates evaluated per acquisition function call
 N_CANDIDATES = 10000              # NEU: Erhöht von 4000 auf 10000 für feinere interne Suche
 # ==================== ACQUISITION FUNCTION SETTINGS ====================
-ACQUISITION_BETA = 0.2          # Temperature for expected improvement (higher = more explorative)
+ACQUISITION_BETA = 0.4          # Temperature for expected improvement (higher = more explorative)
 
 # ==================== COST-AWARE SAMPLING STRATEGY ====================
 COST_SCALING_FACTOR = 5.5       # Scaling factor for cost-aware weighting
@@ -425,93 +424,32 @@ def get_next_candidates(model: MultiTaskGP,
         best_scale = 'micro'
     
     return best_candidate, best_scale
-def check_convergence_1d(best_so_far_history: List[float], window: int, 
-                          rel_threshold: float) -> Tuple[bool, float]:
+def check_narrow_band(set_value_history: List[torch.Tensor], window: int,
+                       rel_threshold: float) -> bool:
     """
-    Prüft für 1D-Parameter (T, pH), ob sich der BISHER BESTE Parameterwert
-    (nicht der zuletzt vorgeschlagene Kandidat!) über die letzten 'window'
-    Iterationen um weniger als 'rel_threshold' verändert hat.
-    Grund für 'bisher bester' statt 'letzter Kandidat': Der zuletzt vorgeschlagene
-    Punkt springt durch die UCB-Exploration naturgemäß umher, auch wenn das
-    eigentliche Optimum längst stabil ist. Der bisher beste Wert ist dagegen
-    monoton und damit ein verlässlicheres Konvergenzsignal.
-    Returns: (is_converged, extrapolated_value)
+    Prüft, ob der zuletzt EINGESTELLTE (vorgeschlagene) Parameterwert kaum noch
+    vom Durchschnitt der (window - 1) davorliegenden eingestellten Werte abweicht.
+    Funktioniert einheitlich für 1D (T, pH) und mehrdimensionale Parameter (F1,F2,F3):
+    bei mehreren Dimensionen muss JEDE Dimension einzeln innerhalb der Toleranz
+    liegen, damit die Funktion True zurückgibt.
+    Wird das Kriterium erfüllt, wird vermutet, dass sich der Wert bereits am
+    Optimum befindet - es findet KEINE Extrapolation mehr statt.
     """
-    if len(best_so_far_history) < window:
-        return False, None
-
-    recent = best_so_far_history[-window:]
-    start_val, end_val = recent[0], recent[-1]
-
-    # Schutz gegen Division durch (nahe) 0
-    denom = max(abs(start_val), 1e-6)
-    rel_change = abs(end_val - start_val) / denom
-
-    if rel_change >= rel_threshold:
-        return False, None
-
-    # Konvergiert -> mittlere Steigung im Fenster berechnen und extrapolieren
-    diffs = [recent[i + 1] - recent[i] for i in range(len(recent) - 1)]
-    avg_slope = sum(diffs) / len(diffs)
-    extrapolated_value = end_val + avg_slope * EXTRAPOLATION_FACTOR
-
-    return True, extrapolated_value
-
-
-def validate_extrapolated_point(model, extrapolated_value: float, bounds: torch.Tensor,
-                                 best_observed_yield: float) -> float:
-    """
-    Validiert den extrapolierten Wert über die GP-Posterior-Mean-Vorhersage,
-    bevor er als Optimum übernommen wird. Das verhindert, dass eine lineare
-    Extrapolation (die die Nichtlinearität der echten Zielfunktion ignoriert)
-    ein eigentlich gutes Ergebnis verschlechtert.
-    Clippt zusätzlich auf die gültigen Bounds.
-    Gibt den validierten Wert zurück, oder None, falls die Extrapolation
-    verworfen werden soll (-> Fallback auf den bisher besten beobachteten Punkt).
-    """
-    low, high = bounds[0, 0].item(), bounds[1, 0].item()
-    clipped_value = min(max(extrapolated_value, low), high)
-
-    # Vorhersage auf PILOT-Fidelity, da diese Skala für das finale Ergebnis zählt
-    x_test = torch.tensor([[clipped_value, SCALE_TO_FIDELITY['pilot']]])
-    with torch.no_grad():
-        posterior = model.posterior(x_test)
-        pred_mean_norm = posterior.mean.item()
-    pred_mean = pred_mean_norm * model.Y_std.item() + model.Y_mean.item()
-
-    if pred_mean >= best_observed_yield:
-        return clipped_value
-    return None
-
-
-def check_convergence_nd(best_so_far_history: List[torch.Tensor], window: int,
-                          bounds: torch.Tensor, dist_threshold: float) -> bool:
-    """
-    Prüft für mehrdimensionale Parameter (F1, F2, F3), ob sich der bisher beste
-    Punkt über die letzten 'window' Iterationen kaum noch bewegt hat.
-    Alle Dimensionen werden zunächst per Min-Max auf [0,1] normiert (anhand der
-    Bounds), damit F-Werte nahe 0 keine Division-durch-0-Probleme verursachen
-    (im Gegensatz zu einer relativen Prozent-Änderung pro Parameter).
-    Anschließend wird die euklidische Distanz zwischen Fensteranfang und
-    Fensterende im normierten Raum berechnet.
-    Es gibt bewusst KEINE Extrapolation hier: Eine unabhängige lineare
-    Extrapolation pro Feed-Rate würde die Wechselwirkungen zwischen F1, F2, F3
-    ignorieren und das Risiko einer Verschlechterung nur vergrößern.
-    Bei Konvergenz wird stattdessen einfach der bisher beste beobachtete
-    Punkt als Optimum übernommen.
-    """
-    if len(best_so_far_history) < window:
+    if len(set_value_history) < window:
         return False
 
-    recent = best_so_far_history[-window:]
-    low, high = bounds[0], bounds[1]
-    range_ = (high - low).clamp(min=1e-6)
+    recent = set_value_history[-window:]
+    last_val = recent[-1]
+    previous_vals = torch.stack(recent[:-1])  # die (window - 1) Werte davor
 
-    start_norm = (recent[0] - low) / range_
-    end_norm = (recent[-1] - low) / range_
+    mean_prev = previous_vals.mean(dim=0)
 
-    dist = torch.norm(end_norm - start_norm).item()
-    return dist < dist_threshold
+    # Schutz gegen Division durch (nahe) 0, pro Dimension
+    denom = torch.clamp(mean_prev.abs(), min=1e-6)
+    rel_deviation = (last_val - mean_prev).abs() / denom
+
+    # Konvergiert nur, wenn ALLE Dimensionen innerhalb der Toleranz liegen
+    return bool((rel_deviation < rel_threshold).all().item())
 
 def run_bo_loop(step: int, fixed_params: Dict[str, float],
                  n_iterations: int = None,
@@ -546,7 +484,7 @@ def run_bo_loop(step: int, fixed_params: Dict[str, float],
     
     print(f"\n>>> Starting BO iterations (max {n_iterations})...")
     
-    best_so_far_history = []      # Verlauf des bisher besten Parameterwerts/-punkts
+    set_value_history = []        # Verlauf der tatsächlich eingestellten Parameterwerte
     early_stop_override_x = None  # Bei Abbruch gesetzter finaler X-Wert
     
     for iteration in range(n_iterations):
@@ -576,47 +514,30 @@ def run_bo_loop(step: int, fixed_params: Dict[str, float],
         X = torch.cat([X, x_next_2d])
         Y = torch.cat([Y, y_next_2d])
         
-        # ==================== ABBRUCHKRITERIUM ====================
+       # ==================== ABBRUCHKRITERIUM ====================
         current_best_idx = Y.argmax(dim=0).item()
         current_best_x = X[current_best_idx, :-1]  # ohne Fidelity-Spalte
         current_best_yield = Y[current_best_idx].item()
         
-        best_so_far_history.append(current_best_x.clone())
+        # Tatsächlich eingestellten Wert dieser Iteration festhalten (ohne Fidelity-Spalte)
+        set_value_history.append(x_next.clone())
         
         # Bedingung 1: bester Yield > Init-Durchschnitt UND > finaler Yield der Vorstufe
+        # (verhindert, dass ein Abbruch das Ergebnis gegenüber der Vorstufe verschlechtert)
         yield_condition = current_best_yield > avg_init_yield
         if previous_stage_yield is not None:
             yield_condition = yield_condition and (current_best_yield > previous_stage_yield)
         
-        if yield_condition and len(best_so_far_history) >= EARLY_STOP_WINDOW:
-            if step in (1, 2):
-                history_1d = [x[0].item() for x in best_so_far_history]
-                converged, extrapolated_value = check_convergence_1d(
-                    history_1d, EARLY_STOP_WINDOW, EARLY_STOP_REL_THRESHOLD
-                )
-                if converged:
-                    print(f"    [ABBRUCH] Konvergenz erkannt (Änderung < {EARLY_STOP_REL_THRESHOLD*100:.2f}% "
-                          f"über die letzten {EARLY_STOP_WINDOW} Iterationen).")
-                    validated_value = validate_extrapolated_point(
-                        model, extrapolated_value, bounds, current_best_yield
-                    )
-                    if validated_value is not None:
-                        print(f"    Extrapolation auf {extrapolated_value:.4f} vom GP bestätigt -> übernommen.")
-                        early_stop_override_x = torch.tensor([validated_value])
-                    else:
-                        print(f"    Extrapolation vom GP NICHT bestätigt -> bisher bester "
-                              f"beobachteter Punkt wird stattdessen verwendet.")
-                        early_stop_override_x = current_best_x.clone()
-                    break
-            elif step == 3:
-                converged = check_convergence_nd(
-                    best_so_far_history, EARLY_STOP_WINDOW, bounds, EARLY_STOP_DIST_THRESHOLD
-                )
-                if converged:
-                    print(f"    [ABBRUCH] Konvergenz erkannt (normierte Distanz < {EARLY_STOP_DIST_THRESHOLD} "
-                          f"über die letzten {EARLY_STOP_WINDOW} Iterationen).")
-                    early_stop_override_x = current_best_x.clone()
-                    break
+        # Bedingung 2: die letzten EARLY_STOP_WINDOW eingestellten Werte liegen in einem
+        # engen Schlauch -> vermutetes Optimum, gilt gleich für T, pH und F1/F2/F3
+        if yield_condition:
+            converged = check_narrow_band(set_value_history, EARLY_STOP_WINDOW, EARLY_STOP_REL_THRESHOLD)
+            if converged:
+                print(f"    [ABBRUCH] Eingestellte Werte liegen seit {EARLY_STOP_WINDOW} Iterationen "
+                      f"in einem engen Schlauch (< {EARLY_STOP_REL_THRESHOLD*100:.2f}% Abweichung "
+                      f"vom Durchschnitt der 4 Vorwerte) -> vermutetes Optimum erreicht.")
+                early_stop_override_x = current_best_x.clone()
+                break
         # ==================== ENDE ABBRUCHKRITERIUM ====================
     
     # Find best sample from current step (ggf. durch Abbruch-Ergebnis überschrieben)
