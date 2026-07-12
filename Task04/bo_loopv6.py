@@ -72,17 +72,24 @@ BASELINE_PARAMS = {
 # ==================== BO LOOP HYPERPARAMETERS ====================
 # Initial samples per fidelity level (Step 1, 2, 3)
 INITIAL_SAMPLES = {
-    'micro': 3,                   # Initial micro scale samples
-    'bench': 3,                   # NEU: Zwingt das Modell, Bench-Daten zu sammeln (vorher 0)
+    'micro': 7,                   # Initial micro scale samples
+    'bench': 0,                   # NEU: Zwingt das Modell, Bench-Daten zu sammeln (vorher 0)
     'pilot': 0,                   # Initial pilot scale samples (use for validation only)
 }
 
 # Number of optimization iterations per step
 BO_ITERATIONS = {
-    'step1': 20,                  # Step 1 (T optimization) iterations
-    'step2': 10,                  # Step 2 (pH optimization) iterations
-    'step3': 20,                  # NEU: Reduziert von 30 auf 20, um Budget für Bench-Runs freizumachen
+    'step1': 25,                  # Step 1 (T optimization) iterations
+    'step2': 25,                  # Step 2 (pH optimization) iterations
+    'step3': 25,                  # NEU: Reduziert von 30 auf 20, um Budget für Bench-Runs freizumache
 }
+    
+# ==================== ABBRUCHKRITERIEN (EARLY STOPPING) ====================
+EARLY_STOP_WINDOW = 5              # Anzahl Iterationen für die Konvergenzprüfung
+                                    # (5 statt 3, um weniger anfällig für Messrauschen zu sein)
+EARLY_STOP_REL_THRESHOLD = 0.002   # 0.2% relative Änderung -> für T, pH (1D)
+EARLY_STOP_DIST_THRESHOLD = 0.04   # normierte euklidische Distanz -> für F1,F2,F3 (3D)
+EXTRAPOLATION_FACTOR = 1.1         # Multiplikator auf die mittlere Steigung
 
 # Candidates evaluated per acquisition function call
 N_CANDIDATES = 10000              # NEU: Erhöht von 4000 auf 10000 für feinere interne Suche
@@ -90,7 +97,7 @@ N_CANDIDATES = 10000              # NEU: Erhöht von 4000 auf 10000 für feinere
 ACQUISITION_BETA = 0.2          # Temperature for expected improvement (higher = more explorative)
 
 # ==================== COST-AWARE SAMPLING STRATEGY ====================
-COST_SCALING_FACTOR = 0.5       # Scaling factor for cost-aware weighting
+COST_SCALING_FACTOR = 5.5       # Scaling factor for cost-aware weighting
 
 print(f"\n[BUDGET]")
 print(f"  Total Budget:           {TOTAL_BUDGET:,} EUR")
@@ -418,17 +425,107 @@ def get_next_candidates(model: MultiTaskGP,
         best_scale = 'micro'
     
     return best_candidate, best_scale
+def check_convergence_1d(best_so_far_history: List[float], window: int, 
+                          rel_threshold: float) -> Tuple[bool, float]:
+    """
+    Prüft für 1D-Parameter (T, pH), ob sich der BISHER BESTE Parameterwert
+    (nicht der zuletzt vorgeschlagene Kandidat!) über die letzten 'window'
+    Iterationen um weniger als 'rel_threshold' verändert hat.
+    Grund für 'bisher bester' statt 'letzter Kandidat': Der zuletzt vorgeschlagene
+    Punkt springt durch die UCB-Exploration naturgemäß umher, auch wenn das
+    eigentliche Optimum längst stabil ist. Der bisher beste Wert ist dagegen
+    monoton und damit ein verlässlicheres Konvergenzsignal.
+    Returns: (is_converged, extrapolated_value)
+    """
+    if len(best_so_far_history) < window:
+        return False, None
+
+    recent = best_so_far_history[-window:]
+    start_val, end_val = recent[0], recent[-1]
+
+    # Schutz gegen Division durch (nahe) 0
+    denom = max(abs(start_val), 1e-6)
+    rel_change = abs(end_val - start_val) / denom
+
+    if rel_change >= rel_threshold:
+        return False, None
+
+    # Konvergiert -> mittlere Steigung im Fenster berechnen und extrapolieren
+    diffs = [recent[i + 1] - recent[i] for i in range(len(recent) - 1)]
+    avg_slope = sum(diffs) / len(diffs)
+    extrapolated_value = end_val + avg_slope * EXTRAPOLATION_FACTOR
+
+    return True, extrapolated_value
+
+
+def validate_extrapolated_point(model, extrapolated_value: float, bounds: torch.Tensor,
+                                 best_observed_yield: float) -> float:
+    """
+    Validiert den extrapolierten Wert über die GP-Posterior-Mean-Vorhersage,
+    bevor er als Optimum übernommen wird. Das verhindert, dass eine lineare
+    Extrapolation (die die Nichtlinearität der echten Zielfunktion ignoriert)
+    ein eigentlich gutes Ergebnis verschlechtert.
+    Clippt zusätzlich auf die gültigen Bounds.
+    Gibt den validierten Wert zurück, oder None, falls die Extrapolation
+    verworfen werden soll (-> Fallback auf den bisher besten beobachteten Punkt).
+    """
+    low, high = bounds[0, 0].item(), bounds[1, 0].item()
+    clipped_value = min(max(extrapolated_value, low), high)
+
+    # Vorhersage auf PILOT-Fidelity, da diese Skala für das finale Ergebnis zählt
+    x_test = torch.tensor([[clipped_value, SCALE_TO_FIDELITY['pilot']]])
+    with torch.no_grad():
+        posterior = model.posterior(x_test)
+        pred_mean_norm = posterior.mean.item()
+    pred_mean = pred_mean_norm * model.Y_std.item() + model.Y_mean.item()
+
+    if pred_mean >= best_observed_yield:
+        return clipped_value
+    return None
+
+
+def check_convergence_nd(best_so_far_history: List[torch.Tensor], window: int,
+                          bounds: torch.Tensor, dist_threshold: float) -> bool:
+    """
+    Prüft für mehrdimensionale Parameter (F1, F2, F3), ob sich der bisher beste
+    Punkt über die letzten 'window' Iterationen kaum noch bewegt hat.
+    Alle Dimensionen werden zunächst per Min-Max auf [0,1] normiert (anhand der
+    Bounds), damit F-Werte nahe 0 keine Division-durch-0-Probleme verursachen
+    (im Gegensatz zu einer relativen Prozent-Änderung pro Parameter).
+    Anschließend wird die euklidische Distanz zwischen Fensteranfang und
+    Fensterende im normierten Raum berechnet.
+    Es gibt bewusst KEINE Extrapolation hier: Eine unabhängige lineare
+    Extrapolation pro Feed-Rate würde die Wechselwirkungen zwischen F1, F2, F3
+    ignorieren und das Risiko einer Verschlechterung nur vergrößern.
+    Bei Konvergenz wird stattdessen einfach der bisher beste beobachtete
+    Punkt als Optimum übernommen.
+    """
+    if len(best_so_far_history) < window:
+        return False
+
+    recent = best_so_far_history[-window:]
+    low, high = bounds[0], bounds[1]
+    range_ = (high - low).clamp(min=1e-6)
+
+    start_norm = (recent[0] - low) / range_
+    end_norm = (recent[-1] - low) / range_
+
+    dist = torch.norm(end_norm - start_norm).item()
+    return dist < dist_threshold
 
 def run_bo_loop(step: int, fixed_params: Dict[str, float],
                  n_iterations: int = None,
                  init_center: torch.Tensor = None,
-                 init_spread_fraction: float = None) -> Tuple[Dict[str, float], np.ndarray]:
+                 init_spread_fraction: float = None,
+                 previous_stage_yield: float = None) -> Tuple[Dict[str, float], np.ndarray, float]:
     """
     Execute one complete BO optimization loop.
     n_iterations: überschreibt die Standard-Iterationsanzahl aus BO_ITERATIONS, falls gesetzt.
     init_center / init_spread_fraction: falls gesetzt, wird die initiale Stichprobe
     um dieses Zentrum herum gezogen statt über den vollen Suchraum.
-    Returns: (fixed_params_updated, best_recipe)
+    previous_stage_yield: bester finaler Yield der vorherigen Stufe (Abbruchkriterium).
+    Falls None (z.B. Step 1a ohne Vorgänger), wird diese Bedingung übersprungen.
+    Returns: (fixed_params_updated, best_recipe, best_yield)
     """
     print(f"\n" + "="*80)
     print(f"STEP {step}: BAYESIAN OPTIMIZATION LOOP")
@@ -439,11 +536,18 @@ def run_bo_loop(step: int, fixed_params: Dict[str, float],
     # Initial sampling
     X, Y = run_initial_sampling(step, fixed_params, center=init_center, spread_fraction=init_spread_fraction)
     
+    # Referenzwert für das Abbruchkriterium: Durchschnittlicher Yield der Initialisierung
+    avg_init_yield = Y.mean().item()
+    print(f"    Durchschnittlicher Init-Yield (Abbruch-Referenz): {avg_init_yield:.6f}")
+    
     # BO iterations
     if n_iterations is None:
         n_iterations = BO_ITERATIONS[f'step{step}']
     
     print(f"\n>>> Starting BO iterations (max {n_iterations})...")
+    
+    best_so_far_history = []      # Verlauf des bisher besten Parameterwerts/-punkts
+    early_stop_override_x = None  # Bei Abbruch gesetzter finaler X-Wert
     
     for iteration in range(n_iterations):
         # Check budget
@@ -460,29 +564,69 @@ def run_bo_loop(step: int, fixed_params: Dict[str, float],
         # Construct full recipe
         recipe = tensor_to_recipe(x_next, step, fixed_params)
         
-# Run experiment (innerhalb von run_bo_loop)
         print(f"  Iteration {iteration + 1}/{n_iterations}: Suggesting {suggested_scale}...")
         yield_val, cost = run_single_experiment(recipe, suggested_scale)
         
-        # NEU: Fidelity an den neuen Punkt anfügen, bevor er gespeichert wird
         fidelity_val = SCALE_TO_FIDELITY[suggested_scale]
         x_next_with_fidelity = torch.cat([x_next, torch.tensor([fidelity_val])])
         
-        # Update data - ensure proper dimensions
-        x_next_2d = x_next_with_fidelity.unsqueeze(0) # [1, dim+1]
-        y_next_2d = torch.tensor([[yield_val]])  # [1, 1]
+        x_next_2d = x_next_with_fidelity.unsqueeze(0)
+        y_next_2d = torch.tensor([[yield_val]])
         
         X = torch.cat([X, x_next_2d])
         Y = torch.cat([Y, y_next_2d])
+        
+        # ==================== ABBRUCHKRITERIUM ====================
+        current_best_idx = Y.argmax(dim=0).item()
+        current_best_x = X[current_best_idx, :-1]  # ohne Fidelity-Spalte
+        current_best_yield = Y[current_best_idx].item()
+        
+        best_so_far_history.append(current_best_x.clone())
+        
+        # Bedingung 1: bester Yield > Init-Durchschnitt UND > finaler Yield der Vorstufe
+        yield_condition = current_best_yield > avg_init_yield
+        if previous_stage_yield is not None:
+            yield_condition = yield_condition and (current_best_yield > previous_stage_yield)
+        
+        if yield_condition and len(best_so_far_history) >= EARLY_STOP_WINDOW:
+            if step in (1, 2):
+                history_1d = [x[0].item() for x in best_so_far_history]
+                converged, extrapolated_value = check_convergence_1d(
+                    history_1d, EARLY_STOP_WINDOW, EARLY_STOP_REL_THRESHOLD
+                )
+                if converged:
+                    print(f"    [ABBRUCH] Konvergenz erkannt (Änderung < {EARLY_STOP_REL_THRESHOLD*100:.2f}% "
+                          f"über die letzten {EARLY_STOP_WINDOW} Iterationen).")
+                    validated_value = validate_extrapolated_point(
+                        model, extrapolated_value, bounds, current_best_yield
+                    )
+                    if validated_value is not None:
+                        print(f"    Extrapolation auf {extrapolated_value:.4f} vom GP bestätigt -> übernommen.")
+                        early_stop_override_x = torch.tensor([validated_value])
+                    else:
+                        print(f"    Extrapolation vom GP NICHT bestätigt -> bisher bester "
+                              f"beobachteter Punkt wird stattdessen verwendet.")
+                        early_stop_override_x = current_best_x.clone()
+                    break
+            elif step == 3:
+                converged = check_convergence_nd(
+                    best_so_far_history, EARLY_STOP_WINDOW, bounds, EARLY_STOP_DIST_THRESHOLD
+                )
+                if converged:
+                    print(f"    [ABBRUCH] Konvergenz erkannt (normierte Distanz < {EARLY_STOP_DIST_THRESHOLD} "
+                          f"über die letzten {EARLY_STOP_WINDOW} Iterationen).")
+                    early_stop_override_x = current_best_x.clone()
+                    break
+        # ==================== ENDE ABBRUCHKRITERIUM ====================
     
-# Find best sample from current step
-    best_idx = Y.argmax(dim=0).item()
-    
-    # NEU: Schneide die letzte Spalte (Fidelity) ab ([:-1]), 
-    # damit nur die echten Parameterwerte gespeichert werden!
-    best_x = X[best_idx, :-1] 
-    
-    best_yield = Y[best_idx].item()
+    # Find best sample from current step (ggf. durch Abbruch-Ergebnis überschrieben)
+    if early_stop_override_x is not None:
+        best_x = early_stop_override_x
+        best_yield = Y[Y.argmax(dim=0).item()].item()
+    else:
+        best_idx = Y.argmax(dim=0).item()
+        best_x = X[best_idx, :-1]
+        best_yield = Y[best_idx].item()
     
     # Update fixed parameters
     fixed_params_new = fixed_params.copy()
@@ -507,7 +651,7 @@ def run_bo_loop(step: int, fixed_params: Dict[str, float],
     print(f"    Best {param_name} optimized: {param_value}")
     print(f"    Best yield found: {best_yield:.6f}")
     
-    return fixed_params_new, best_recipe
+    return fixed_params_new, best_recipe, best_yield
 
 ##====================================================================================
 ## MAIN EXECUTION
@@ -523,14 +667,18 @@ def main():
     
     # 1. KLARE, LINEARE REIHENFOLGE:
     
-    # Step 1: Optimize Temperature
-    fixed_params, best_recipe_step1 = run_bo_loop(step=1, fixed_params=fixed_params)
+# Step 1: Optimize Temperature
+    fixed_params, best_recipe_step1, yield_step1 = run_bo_loop(step=1, fixed_params=fixed_params)
     
     # Step 2: Optimize pH
-    fixed_params, best_recipe_step2 = run_bo_loop(step=2, fixed_params=fixed_params)
+    fixed_params, best_recipe_step2, yield_step2 = run_bo_loop(
+        step=2, fixed_params=fixed_params, previous_stage_yield=yield_step1
+    )
     
     # Step 3: Optimize Feed Rates
-    fixed_params, best_recipe_step3 = run_bo_loop(step=3, fixed_params=fixed_params)
+    fixed_params, best_recipe_step3, yield_step3 = run_bo_loop(
+        step=3, fixed_params=fixed_params, previous_stage_yield=yield_step2
+    )
     
     
     # Final Step: Execute one pilot run for validation
