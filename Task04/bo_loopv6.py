@@ -72,7 +72,7 @@ BASELINE_PARAMS = {
 # ==================== BO LOOP HYPERPARAMETERS ====================
 # Initial samples per fidelity level (Step 1, 2, 3)
 INITIAL_SAMPLES = {
-    'micro': 7,                   # Initial micro scale samples
+    'micro': 10,                   # Initial micro scale samples
     'bench': 0,                   # NEU: Zwingt das Modell, Bench-Daten zu sammeln (vorher 0)
     'pilot': 0,                   # Initial pilot scale samples (use for validation only)
 }
@@ -89,6 +89,8 @@ BO_ITERATIONS = {
 EARLY_STOP_WINDOW = 5              # Anzahl der zuletzt eingestellten Werte, die betrachtet werden
 EARLY_STOP_REL_THRESHOLD = 0.002   # 0.2% relative Abweichung vom Durchschnitt der 4 Vorwerte
                                     # -> gilt einheitlich für T, pH und F1/F2/F3
+# ==================== NOTFALL: T-LOOP WIEDERHOLUNG ====================
+EMERGENCY_T_ITERATIONS = 15               # Iterationen für den Notfall-T-Loop (volle Neu-Initialisierung)
 
 # Candidates evaluated per acquisition function call
 N_CANDIDATES = 10000              # NEU: Erhöht von 4000 auf 10000 für feinere interne Suche
@@ -455,7 +457,7 @@ def run_bo_loop(step: int, fixed_params: Dict[str, float],
                  n_iterations: int = None,
                  init_center: torch.Tensor = None,
                  init_spread_fraction: float = None,
-                 previous_stage_yield: float = None) -> Tuple[Dict[str, float], np.ndarray, float]:
+                 previous_stage_yield: float = None) -> Tuple[Dict[str, float], np.ndarray, float, bool]:
     """
     Execute one complete BO optimization loop.
     n_iterations: überschreibt die Standard-Iterationsanzahl aus BO_ITERATIONS, falls gesetzt.
@@ -486,6 +488,7 @@ def run_bo_loop(step: int, fixed_params: Dict[str, float],
     
     set_value_history = []        # Verlauf der tatsächlich eingestellten Parameterwerte
     early_stop_override_x = None  # Bei Abbruch gesetzter finaler X-Wert
+    converged_early = False       # Wird True, wenn das Abbruchkriterium tatsächlich ausgelöst hat
     
     for iteration in range(n_iterations):
         # Check budget
@@ -537,6 +540,7 @@ def run_bo_loop(step: int, fixed_params: Dict[str, float],
                       f"in einem engen Schlauch (< {EARLY_STOP_REL_THRESHOLD*100:.2f}% Abweichung "
                       f"vom Durchschnitt der 4 Vorwerte) -> vermutetes Optimum erreicht.")
                 early_stop_override_x = current_best_x.clone()
+                converged_early = True
                 break
         # ==================== ENDE ABBRUCHKRITERIUM ====================
     
@@ -572,7 +576,7 @@ def run_bo_loop(step: int, fixed_params: Dict[str, float],
     print(f"    Best {param_name} optimized: {param_value}")
     print(f"    Best yield found: {best_yield:.6f}")
     
-    return fixed_params_new, best_recipe, best_yield
+    return fixed_params_new, best_recipe, best_yield, converged_early
 
 ##====================================================================================
 ## MAIN EXECUTION
@@ -589,16 +593,34 @@ def main():
     # 1. KLARE, LINEARE REIHENFOLGE:
     
 # Step 1: Optimize Temperature
-    fixed_params, best_recipe_step1, yield_step1 = run_bo_loop(step=1, fixed_params=fixed_params)
+    fixed_params, best_recipe_step1, yield_step1, _ = run_bo_loop(step=1, fixed_params=fixed_params)
     
     # Step 2: Optimize pH
-    fixed_params, best_recipe_step2, yield_step2 = run_bo_loop(
+    fixed_params, best_recipe_step2, yield_step2, step2_converged_early = run_bo_loop(
         step=2, fixed_params=fixed_params, previous_stage_yield=yield_step1
     )
     
-    # Step 3: Optimize Feed Rates
-    fixed_params, best_recipe_step3, yield_step3 = run_bo_loop(
-        step=3, fixed_params=fixed_params, previous_stage_yield=yield_step2
+    latest_yield = yield_step2
+    
+    # NOTFALL: Falls der pH-Loop NICHT vorzeitig abgebrochen wurde, deutet das auf ein
+    # moeglicherweise falsches T-Optimum hin -> T-Loop mit dem neuen pH wiederholen.
+    if not step2_converged_early:
+        print("\n" + "!"*80)
+        print("[NOTFALL] pH-Loop wurde nicht vorzeitig abgebrochen - "
+              "moegliches Fehl-Optimum bei T. Wiederhole T-Loop mit aktuellem pH.")
+        print("!"*80)
+        
+        fixed_params, best_recipe_step1_emergency, yield_step1_emergency, _ = run_bo_loop(
+            step=1,
+            fixed_params=fixed_params,
+            n_iterations=EMERGENCY_T_ITERATIONS,
+            previous_stage_yield=yield_step2,
+        )
+        latest_yield = yield_step1_emergency
+    
+    # Step 3: Optimize Feed Rates (immer der naechste Schritt, unabhaengig vom Notfall-Zweig)
+    fixed_params, best_recipe_step3, yield_step3, _ = run_bo_loop(
+        step=3, fixed_params=fixed_params, previous_stage_yield=latest_yield
     )
     
     
