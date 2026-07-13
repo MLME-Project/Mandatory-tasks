@@ -124,13 +124,15 @@ if __name__ == "__main__":
     # np.random.seed(67)
 
     # setup experiment
-    BUDGET = 1e6 #15000
-    ACQ_FUN = 'ucb'
-    ACQ_FUN_VAR = -0.1
-    PATIENCE = 50
+    BUDGET = 1e6 #15000 # stops iteration before a cost limit is reached
+    ACQ_FUN = 'ucb' # acquisition function: 'ei' (expected improvement) or 'ucb' (upper confidence bound)
+    ACQ_FUN_VAR_MAX = 2.0 # dynamic scaling of the free variable of the acquisition function
+    ACQ_FUN_VAR_MIN = -0.1
+    ACQ_FUN_VAR_DECAY = 30  # iterations over which MAX -> MIN linearly decays, then holds at MIN
+    PATIENCE = 30 # stops iteration after this number of iterations without finding a better measurement
     LHC_SAMPLES = 20
-    RUN_ID = '37'
-    FILENAME = f'Task03/data_{ACQ_FUN}({ACQ_FUN_VAR})_patience{PATIENCE}_lhc{LHC_SAMPLES}_{RUN_ID}.csv'
+    RUN_ID = '10'
+    FILENAME = f'Task03/data_{ACQ_FUN}_param02_patience{PATIENCE}_lhc{LHC_SAMPLES}_final_{RUN_ID}.csv'
     
     # setup client
     client = BioreactorClient()
@@ -191,6 +193,7 @@ if __name__ == "__main__":
             np.random.uniform(*F_BOUNDS, n_test),
             np.random.uniform(*F_BOUNDS, n_test),
         ])
+        ACQ_FUN_VAR = ACQ_FUN_VAR_MAX + (ACQ_FUN_VAR_MIN - ACQ_FUN_VAR_MAX) * min(i / ACQ_FUN_VAR_DECAY, 1.0)
         if ACQ_FUN == 'ei':
             acq_test = expectedImprovement(
                 X=X_test, 
@@ -236,9 +239,11 @@ if __name__ == "__main__":
         print(f"measurement: Y = {result['Y']:.3f} -> projected: Y = {projectToPilotScale(result['Y'], scale):.3f}")
 
     # evaluate best point on pilot scale
-    X, y = getXyFromCSV(FILENAME)
+    df = getDataFrameFromCSV(fileName=FILENAME)
+    cummulativeCost = np.sum(df["cost_eur"])
+    X, y = getXyFromDataFrame(df, scaleY=True)
     X_best = X[np.argmax(y)]
     T, pH, F1, F2, F3 = X_best
     result = client.run('pilot', T, pH, F1, F2, F3)
     appendToCSV(FILENAME, 'pilot', T, pH, F1, F2, F3, result)
-    print(f"Best point on pilot scale: T={T:.1f} pH={pH:.2f} F1={F1:.2f} F2={F2:.2f} F3={F3:.2f} | Y = {result['Y']:.3f}")
+    print(f"\nBest point on pilot scale: T={T:.1f} pH={pH:.2f} F1={F1:.2f} F2={F2:.2f} F3={F3:.2f} | Y = {result['Y']:.3f} | cost = {cummulativeCost}")
