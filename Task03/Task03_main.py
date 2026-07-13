@@ -2,7 +2,7 @@ import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 import numpy as np
-from scipy.stats import norm
+from scipy.stats import norm, qmc
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, ConstantKernel, WhiteKernel
 from sklearn.pipeline import Pipeline
@@ -11,8 +11,8 @@ from scipy.optimize import minimize
 import warnings
 from sklearn.exceptions import ConvergenceWarning
 from API_Group8 import BioreactorClient
-from data_frame_and_csv_manipulation import appendToCSV, getXyFromCSV, getDataFrameFromCSV, getXyFromDataFrame, INPUT_COLS
-from global_constants import T_BOUNDS, pH_BOUNDS, F_BOUNDS
+from data_frame_and_csv_manipulation import appendToCSV, getXyFromCSV, getDataFrameFromCSV, getXyFromDataFrame, getVarFromDataFrame, INPUT_COLS, projectToPilotScale
+from global_constants import T_BOUNDS, pH_BOUNDS, F_BOUNDS, COST, SCALED_STDS
 
 
 
@@ -25,19 +25,57 @@ def sampleHypercubeCorners(scale, T_Bounds, pH_Bounds, F1_Bounds, F2_Bounds, F3_
                         print(f"running experiment [{scale}, {T}, {pH}, {F1}, {F2}, {F3}]")
                         result = client.run(scale, T, pH, F1, F2, F3)
                         appendToCSV(fileName, scale, T, pH, F1, F2, F3, result)
-N_INITIAL_SAMPLES = 2**5
 
 
-def setupPipeline():
+
+def sampleLatinHyperCube(n_samples, scale, T_Bounds, pH_Bounds, F1_Bounds, F2_Bounds, F3_Bounds, client, fileName):
+    lhc_sample = qmc.LatinHypercube(d=5).random(n=n_samples)
+    lower_bounds = [T_Bounds[0], pH_Bounds[0], F1_Bounds[0], F2_Bounds[0], F3_Bounds[0]]
+    upper_bounds = [T_Bounds[1], pH_Bounds[1], F1_Bounds[1], F2_Bounds[1], F3_Bounds[1]]
+    scaled_lhc_sample = qmc.scale(lhc_sample, l_bounds=lower_bounds, u_bounds=upper_bounds)
+    for recipe in scaled_lhc_sample:
+        T, pH, F1, F2, F3 = recipe
+        print(f"running experiment [{scale}, {T}, {pH}, {F1}, {F2}, {F3}]")
+        result = client.run(scale, T, pH, F1, F2, F3)
+        appendToCSV(fileName, scale, T, pH, F1, F2, F3, result)
+
+
+
+def setupAndFitPipeline(X, y, includeWhiteKernel=True, var=None):
     # σ_signal² · exp(-‖x−x'‖²/2ℓ²) + σ_noise²·δ(x,x')
     # 5 length scales for automatic relevance determination (ARD)
-    rbf = ConstantKernel() * RBF(length_scale=[1.0]*5, length_scale_bounds=[(1e-5, 3.0)]*5) + WhiteKernel()
-    gp = GaussianProcessRegressor(kernel=rbf, n_restarts_optimizer=50)
+    rbf = ConstantKernel() * RBF(length_scale=[1.0]*5, length_scale_bounds=[(1e-5, 3.0)]*5)
+    if includeWhiteKernel:
+        rbf += WhiteKernel()
+    if var is not None:
+        gp = GaussianProcessRegressor(
+            kernel=rbf, 
+            normalize_y=True, 
+            n_restarts_optimizer=50, 
+            alpha=var)
+    else:
+        gp = GaussianProcessRegressor(
+            kernel=rbf, 
+            normalize_y=True, 
+            n_restarts_optimizer=50)
     pipe = Pipeline([
     ('scaler', StandardScaler()),
     ('gp', gp)
     ])
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        pipe.fit(X, y)
+        for warning in w:
+            if isinstance(warning.message, ConvergenceWarning):
+                message = str(warning).split(' ')
+                dimension = int(message[8])
+                variable = INPUT_COLS[dimension]
+                upperLower = message[17]
+                print("length_scale of", variable, "is at", upperLower, "bound")
+            else:
+                warnings.warn(warning.message)
     return pipe
+
 
 
 # acquisition functions
@@ -86,11 +124,13 @@ if __name__ == "__main__":
     # np.random.seed(67)
 
     # setup experiment
-    SCALE = 'pilot'
-    ACQ_FUN = 'ei'
-    ACQ_FUN_VAR = 0.01
-    RUN_ID = '03'
-    FILENAME = f'Task03/{SCALE}_data_{ACQ_FUN}({ACQ_FUN_VAR})_{RUN_ID}.csv'
+    BUDGET = 1e6 #15000
+    ACQ_FUN = 'ucb'
+    ACQ_FUN_VAR = -0.1
+    PATIENCE = 50
+    LHC_SAMPLES = 20
+    RUN_ID = '37'
+    FILENAME = f'Task03/data_{ACQ_FUN}({ACQ_FUN_VAR})_patience{PATIENCE}_lhc{LHC_SAMPLES}_{RUN_ID}.csv'
     
     # setup client
     client = BioreactorClient()
@@ -98,37 +138,49 @@ if __name__ == "__main__":
 
     #get initial data
     if not os.path.exists(FILENAME):
-        sampleHypercubeCorners(
-            scale=SCALE, 
+        # sampleHypercubeCorners(
+        #     scale='micro', 
+        #     T_Bounds=T_BOUNDS, 
+        #     pH_Bounds=pH_BOUNDS, 
+        #     F1_Bounds=F_BOUNDS, 
+        #     F2_Bounds=F_BOUNDS, 
+        #     F3_Bounds=F_BOUNDS, 
+        #     client=client, 
+        #     fileName=FILENAME
+        #     )
+        sampleLatinHyperCube(
+            n_samples=LHC_SAMPLES,
+            scale='micro', 
             T_Bounds=T_BOUNDS, 
             pH_Bounds=pH_BOUNDS, 
             F1_Bounds=F_BOUNDS, 
             F2_Bounds=F_BOUNDS, 
             F3_Bounds=F_BOUNDS, 
             client=client, 
-            fileName=FILENAME)
+            fileName=FILENAME
+            )
 
     # main training loop
-    for i in range(100):
+    iterations_with_unchanged_best = 0
+    y_best = 0
+    BUDGET -= COST['pilot']
+    for i in range(10000):
         # get data so far
         df = getDataFrameFromCSV(fileName=FILENAME)
         cummulativeCost = np.sum(df["cost_eur"])
-        X, y = getXyFromDataFrame(df)
+        X, y = getXyFromDataFrame(df, scaleY=True)
+        var = getVarFromDataFrame(df, scaleY=True)
+        var = var / np.var(y) # scaling to counteract normalize_y=True
+        if np.max(y) > y_best:
+            iterations_with_unchanged_best = 0
+        else:
+            iterations_with_unchanged_best += 1
         y_best = np.max(y)
-        print(f"\niteration {i} - so far: best Y = {y_best:.3f} | cost = {cummulativeCost} €")
+        X_best = X[np.argmax(y)]
+        print(f"\niteration {i} - best Y = {y_best:.3f} (for {iterations_with_unchanged_best} iterations) | cost = {cummulativeCost} €")
 
         # fit gp
-        pipe = setupPipeline()
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            pipe.fit(X, y)
-        for warning in w:
-            if isinstance(warning.message, ConvergenceWarning):
-                message = str(warning).split(' ')
-                dimension = int(message[8])
-                variable = INPUT_COLS[dimension]
-                upperLower = message[17]
-                print("length_scale of", variable, "is at", upperLower, "bound")
+        pipe = setupAndFitPipeline(X, y, includeWhiteKernel=False, var=var)
 
         # sample acquisition function
         n_test = 100000
@@ -159,19 +211,34 @@ if __name__ == "__main__":
         T, pH, F1, F2, F3 = X_opt
 
         # prediction on the optimum
-        y_mu_max, y_sigma_max = pipe.predict(
+        y_mu_opt, y_sigma_opt = pipe.predict(
             np.atleast_2d(X_opt), 
             return_std=True)
-        print(f"next point: T={T:.1f} pH={pH:.2f} F1={F1:.2f} F2={F2:.2f} F3={F3:.2f} | acq={acq_max:.3e} | GP: mu={y_mu_max[0]:.3f} sigma={y_sigma_max[0]:.3f}")
+        print(f"next point: T={T:.1f} pH={pH:.2f} F1={F1:.2f} F2={F2:.2f} F3={F3:.2f} | acq={acq_max:.3e} | GP: mu={y_mu_opt[0]:.3f} sigma={y_sigma_opt[0]:.3f}")
+
+        # choose scale
+        if y_sigma_opt < 2 * SCALED_STDS['bench']:
+            scale = 'pilot'
+        elif y_sigma_opt < 1.5 * SCALED_STDS['micro']:
+            scale = 'bench'
+        else:
+            scale = 'micro'
+
+        # stopping criterions
+        if iterations_with_unchanged_best >= PATIENCE:
+            break
+        if cummulativeCost + COST[scale] > BUDGET:
+            break
         
         # run new experiment
-        result = client.run(SCALE, T, pH, F1, F2, F3)
-        appendToCSV(FILENAME, SCALE, T, pH, F1, F2, F3, result)
-        print(f"measurement: Y = {result['Y']:.3f}")
+        result = client.run(scale, T, pH, F1, F2, F3)
+        appendToCSV(FILENAME, scale, T, pH, F1, F2, F3, result)
+        print(f"measurement: Y = {result['Y']:.3f} -> projected: Y = {projectToPilotScale(result['Y'], scale):.3f}")
 
     # evaluate best point on pilot scale
     X, y = getXyFromCSV(FILENAME)
     X_best = X[np.argmax(y)]
     T, pH, F1, F2, F3 = X_best
     result = client.run('pilot', T, pH, F1, F2, F3)
+    appendToCSV(FILENAME, 'pilot', T, pH, F1, F2, F3, result)
     print(f"Best point on pilot scale: T={T:.1f} pH={pH:.2f} F1={F1:.2f} F2={F2:.2f} F3={F3:.2f} | Y = {result['Y']:.3f}")
