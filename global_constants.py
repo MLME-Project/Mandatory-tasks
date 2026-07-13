@@ -3,8 +3,8 @@ pH_BOUNDS = [3, 9.5]
 F_BOUNDS = [0, 2]
 
 SCALE_MULTIPLIERS = {
-    'micro': 10.042909630916036,
-    'bench': 0.4231313696684928,
+    'micro': 18.302811,
+    'bench': 0.667888,
     'pilot': 1.0,
 }
 
