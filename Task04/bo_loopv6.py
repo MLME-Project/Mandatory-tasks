@@ -46,8 +46,8 @@ SCALE_TO_FIDELITY = {'micro': 0.0, 'bench': 1.0, 'pilot': 2.0}
 SCALE_COSTS = {'micro': 10, 'bench': 200, 'pilot': 2000}
 
 # ==================== BUDGET CONSTRAINTS ====================
-TOTAL_BUDGET = 14000                    # Total EUR budget
-RESERVED_PILOT_BUDGET = 2000            # Reserve for final validation run
+TOTAL_BUDGET = 14800                    # Total EUR budget
+RESERVED_PILOT_BUDGET = 2200            # Reserve for final validation run
 EXPLORATION_BUDGET = TOTAL_BUDGET - RESERVED_PILOT_BUDGET  # 12000 EUR for exploration
 
 # ==================== PARAMETER BOUNDS ====================
@@ -62,7 +62,7 @@ BOUNDS = {
 
 # ==================== BASELINE PARAMETERS ====================
 BASELINE_PARAMS = {
-    'T': 40.0,                   # Baseline Temperature
+    'T': 35.0,                   # Baseline Temperature
     'pH': 7.0,                   # Baseline pH
     'F1': 1.0,                   # Baseline Feed Rate 1
     'F2': 1.0,                   # Baseline Feed Rate 2
@@ -72,32 +72,32 @@ BASELINE_PARAMS = {
 # ==================== BO LOOP HYPERPARAMETERS ====================
 # Initial samples per fidelity level (Step 1, 2, 3)
 INITIAL_SAMPLES = {
-    'micro': 7,                   # Initial micro scale samples
-    'bench': 0,                   # NEU: Zwingt das Modell, Bench-Daten zu sammeln (vorher 0)
+    'micro': 3,                   # Initial micro scale samples
+    'bench': 3,                   # NEU: Zwingt das Modell, Bench-Daten zu sammeln (vorher 0)
     'pilot': 0,                   # Initial pilot scale samples (use for validation only)
 }
 
 # Number of optimization iterations per step
 BO_ITERATIONS = {
-    'step1': 25,                  # Step 1 (T optimization) iterations
-    'step2': 25,                  # Step 2 (pH optimization) iterations
-    'step3': 25,                  # NEU: Reduziert von 30 auf 20, um Budget für Bench-Runs freizumache
+    'step1': 35,                  # Step 1 (T optimization) iterations
+    'step2': 35,                  # Step 2 (pH optimization) iterations
+    'step3': 35,                  # NEU: Reduziert von 30 auf 20, um Budget für Bench-Runs freizumache
 }
     
 # ==================== ABBRUCHKRITERIEN (EARLY STOPPING) ====================
-EARLY_STOP_WINDOW = 5              # Anzahl Iterationen für die Konvergenzprüfung
+EARLY_STOP_WINDOW = 7              # Anzahl Iterationen für die Konvergenzprüfung
                                     # (5 statt 3, um weniger anfällig für Messrauschen zu sein)
 EARLY_STOP_REL_THRESHOLD = 0.002   # 0.2% relative Änderung -> für T, pH (1D)
 EARLY_STOP_DIST_THRESHOLD = 0.04   # normierte euklidische Distanz -> für F1,F2,F3 (3D)
 EXTRAPOLATION_FACTOR = 1.1         # Multiplikator auf die mittlere Steigung
 
 # Candidates evaluated per acquisition function call
-N_CANDIDATES = 10000              # NEU: Erhöht von 4000 auf 10000 für feinere interne Suche
+N_CANDIDATES = 10000                # NEU: Erhöht von 4000 auf 10000 für feinere interne Suche
 # ==================== ACQUISITION FUNCTION SETTINGS ====================
-ACQUISITION_BETA = 0.2          # Temperature for expected improvement (higher = more explorative)
+ACQUISITION_BETA = 0.2              # Temperature for expected improvement (higher = more explorative)
 
 # ==================== COST-AWARE SAMPLING STRATEGY ====================
-COST_SCALING_FACTOR = 5.5       # Scaling factor for cost-aware weighting
+COST_SCALING_FACTOR = 2.1       # Scaling factor for cost-aware weighting
 
 print(f"\n[BUDGET]")
 print(f"  Total Budget:           {TOTAL_BUDGET:,} EUR")
@@ -346,7 +346,7 @@ def run_initial_sampling(step: int, fixed_params: Dict[str, float],
 def fit_multi_fidelity_model(X: torch.Tensor, Y: torch.Tensor) -> MultiTaskGP:
     """
     Fit a Multi-Task Gaussian Process model.
-    X: [N, D+1] tensor of parameter values (letzte Spalte ist Fidelity: 0.0, 0.5, oder 1.0)
+    X: [N, D+1] tensor of parameter values (letzte Spalte ist Fidelity: 0.0, 1.0, oder 2.0)
     Y: [N, 1] tensor of observations
     """
     if X.dim() == 1:
@@ -533,12 +533,22 @@ def run_bo_loop(step: int, fixed_params: Dict[str, float],
     
     bounds = get_step_bounds(step)
     
-    # Initial sampling
+    # NEU: Höchstwert aller bisherigen Experimente über alle Steps hinweg aus dem Logger auslesen
+    highest_prior_yield = max([r['yield'] for r in logger.all_results]) if logger.all_results else -float('inf')
+    
+# Initial sampling
     X, Y = run_initial_sampling(step, fixed_params, center=init_center, spread_fraction=init_spread_fraction)
     
-    # Referenzwert für das Abbruchkriterium: Durchschnittlicher Yield der Initialisierung
-    avg_init_yield = Y.mean().item()
-    print(f"    Durchschnittlicher Init-Yield (Abbruch-Referenz): {avg_init_yield:.6f}")
+    # NEU: Nutze nur Bench-Läufe für den Durchschnitt, falls vorhanden
+    bench_fidelity = SCALE_TO_FIDELITY['bench']
+    bench_mask = (X[:, -1] == bench_fidelity)
+    
+    if bench_mask.any():
+        avg_init_yield = Y[bench_mask].mean().item()
+        print(f"    Durchschnittlicher Init-Yield (nur Bench-Läufe als Referenz): {avg_init_yield:.6f}")
+    else:
+        avg_init_yield = Y.mean().item()
+        print(f"    Durchschnittlicher Init-Yield (Fallback auf alle Läufe, kein Bench vorhanden): {avg_init_yield:.6f}")
     
     # BO iterations
     if n_iterations is None:
@@ -576,26 +586,31 @@ def run_bo_loop(step: int, fixed_params: Dict[str, float],
         X = torch.cat([X, x_next_2d])
         Y = torch.cat([Y, y_next_2d])
         
-        # ==================== ABBRUCHKRITERIUM ====================
+# ==================== ABBRUCHKRITERIUM ====================
         current_best_idx = Y.argmax(dim=0).item()
         current_best_x = X[current_best_idx, :-1]  # ohne Fidelity-Spalte
         current_best_yield = Y[current_best_idx].item()
         
-        best_so_far_history.append(current_best_x.clone())
+        # Speichert die tatsächlich vorgeschlagene Reaktionsvariable (Parameter-Wert)
+        best_so_far_history.append(x_next.clone())
         
-        # Bedingung 1: bester Yield > Init-Durchschnitt UND > finaler Yield der Vorstufe
-        yield_condition = current_best_yield > avg_init_yield
-        if previous_stage_yield is not None:
-            yield_condition = yield_condition and (current_best_yield > previous_stage_yield)
+        # NEU: Dynamische Bestimmung der Ertrags-Hürde
+        if step == 1:
+            # Im ersten Run muss der beste Yield über dem Durchschnitt der Bench-Initialisierung liegen
+            yield_condition = current_best_yield > avg_init_yield
+        else:
+            # Ab dem zweiten Run (Step >= 2) muss der beste Yield über dem absolut höchsten jemals gemessenen Yield liegen
+            yield_condition = current_best_yield > highest_prior_yield
         
         if yield_condition and len(best_so_far_history) >= EARLY_STOP_WINDOW:
             if step in (1, 2):
+                # Extrahiere die 1D-Reaktionsvariable (z.B. pH oder T) aus der Historie
                 history_1d = [x[0].item() for x in best_so_far_history]
                 converged, extrapolated_value = check_convergence_1d(
                     history_1d, EARLY_STOP_WINDOW, EARLY_STOP_REL_THRESHOLD
                 )
                 if converged:
-                    print(f"    [ABBRUCH] Konvergenz erkannt (Änderung < {EARLY_STOP_REL_THRESHOLD*100:.2f}% "
+                    print(f"    [ABBRUCH] Konvergenz der Reaktionsvariablen erkannt (Änderung < {EARLY_STOP_REL_THRESHOLD*100:.2f}% "
                           f"über die letzten {EARLY_STOP_WINDOW} Iterationen).")
                     validated_value = validate_extrapolated_point(
                         model, extrapolated_value, bounds, current_best_yield
@@ -609,16 +624,17 @@ def run_bo_loop(step: int, fixed_params: Dict[str, float],
                         early_stop_override_x = current_best_x.clone()
                     break
             elif step == 3:
+                # Prüfe die normierte euklidische Distanz der 3D-Reaktionsvariablen (F1, F2, F3)
                 converged = check_convergence_nd(
                     best_so_far_history, EARLY_STOP_WINDOW, bounds, EARLY_STOP_DIST_THRESHOLD
                 )
                 if converged:
-                    print(f"    [ABBRUCH] Konvergenz erkannt (normierte Distanz < {EARLY_STOP_DIST_THRESHOLD} "
+                    print(f"    [ABBRUCH] Konvergenz der Reaktionsvariablen erkannt (normierte Distanz < {EARLY_STOP_DIST_THRESHOLD} "
                           f"über die letzten {EARLY_STOP_WINDOW} Iterationen).")
                     early_stop_override_x = current_best_x.clone()
                     break
         # ==================== ENDE ABBRUCHKRITERIUM ====================
-    
+
     # Find best sample from current step (ggf. durch Abbruch-Ergebnis überschrieben)
     if early_stop_override_x is not None:
         best_x = early_stop_override_x
@@ -666,15 +682,16 @@ def main():
     fixed_params = BASELINE_PARAMS.copy()
     
     # 1. KLARE, LINEARE REIHENFOLGE:
+
     
-# Step 1: Optimize Temperature
+    # Step 1: Optimize Temperature
     fixed_params, best_recipe_step1, yield_step1 = run_bo_loop(step=1, fixed_params=fixed_params)
     
-    # Step 2: Optimize pH
+        # Step 2: Optimize pH
     fixed_params, best_recipe_step2, yield_step2 = run_bo_loop(
         step=2, fixed_params=fixed_params, previous_stage_yield=yield_step1
     )
-    
+   
     # Step 3: Optimize Feed Rates
     fixed_params, best_recipe_step3, yield_step3 = run_bo_loop(
         step=3, fixed_params=fixed_params, previous_stage_yield=yield_step2
