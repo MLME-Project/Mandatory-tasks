@@ -130,6 +130,21 @@ def upperConfidenceBound(X, pipeline, kappa=2.0):
 
 
 def probabilityOfImprovement(X, pipeline, y_best, xi=0.01):
+    """
+    PI(X) = Phi(Z)                                                                \\
+    Z = (mu(X) - y_best - xi) / sigma(X)                                          \\
+    Phi = cumulative distribution function of standard normal distribution        \\
+    mu(X), sigma(X) = pipeline.predict(X, return_std=True)
+
+    Args:
+        X (array): Inputs of shape (n_samples x n_inputs)
+        pipeline (Pipeline): Object on which predict(X) is called; includes the gp
+        y_best (float): Maximum y which improvements are relative to
+        xi (float, optional): Exploration factor. Defaults to 0.01.
+
+    Returns:
+        array: Outputs of shape (n_samples)
+    """
     mu, sigma = pipeline.predict(X, return_std=True)
     Z = (mu - y_best - xi) / (sigma + 1e-9)
     pi = norm.cdf(Z)
@@ -223,6 +238,12 @@ if __name__ == "__main__":
                 X=X_test, 
                 pipeline=pipe,
                 kappa=ACQ_FUN_VAR)
+        elif ACQ_FUN == 'pi':
+            acq_test = probabilityOfImprovement(
+                X=X_test, 
+                pipeline=pipe, 
+                y_best=y_best,
+                xi=ACQ_FUN_VAR)
         else:
             raise NotImplementedError()
         acq_max = np.max(acq_test)
