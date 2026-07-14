@@ -1,0 +1,461 @@
+Command:
+C:\Users\Asus\sciebo - Johanning, Philipp (philipp.johanning@tu-dortmund.de)@tu-dortmund.sciebo.de2\Master\Semester 1\MLME\GitHub Clone Projekt\Mandatory-tasks\.venv\Scripts\python.exe C:\Users\Asus\sciebo - Johanning, Philipp (philipp.johanning@tu-dortmund.de)@tu-dortmund.sciebo.de2\Master\Semester 1\MLME\GitHub Clone Projekt\Mandatory-tasks\Task03\Task03_main.py --acq ucb --init-method lhc --run-id 3 --patience 30 --init-samples 20 --budget 1000000.0
+
+running experiment [micro, 37.76964678771933, 5.526159823480686, 1.0307537582078576, 0.6307453360328219, 1.7201225412935668]
+running experiment [micro, 34.30704974029709, 6.158145906688273, 1.2837790172525465, 0.011521959924200298, 1.8832841720875784]
+running experiment [micro, 43.28220353584579, 3.504195864065248, 1.4725808083981156, 1.1838212693037489, 1.2133265690095782]
+running experiment [micro, 55.160426095217645, 7.148402745162891, 1.395936438440626, 0.9810653326120263, 1.4225774444722206]
+running experiment [micro, 33.8458322752919, 3.7613964492685605, 0.8299240847839625, 0.8934544666370077, 0.0894056291564165]
+running experiment [micro, 21.258344463780908, 9.00274399307521, 1.972701908042815, 1.6857218743790277, 0.8092275069695607]
+running experiment [micro, 48.40039898490805, 4.818830205010874, 0.992367839908705, 0.7942317598013753, 0.4324263595582024]
+running experiment [micro, 45.869913162073345, 5.687115520371634, 1.679118941600441, 1.7043524914352908, 0.3585077690966267]
+  [rate-limited, sleeping 1.0s]
+  [rate-limited, sleeping 2.5s]
+  [rate-limited, sleeping 6.2s]
+  [rate-limited, sleeping 15.6s]
+  [rate-limited, sleeping 39.1s]
+running experiment [micro, 40.263800760815656, 7.635481671727614, 0.40546677433747363, 1.5442976266561317, 1.1119376797117657]
+running experiment [micro, 30.251024409540307, 9.366346436193751, 0.6868889206811565, 1.8238813028826797, 1.9740831378818462]
+running experiment [micro, 47.963618775409344, 8.034406854225283, 0.39930906776386915, 1.2754538329605316, 0.7749077635176246]
+running experiment [micro, 53.985440218191684, 5.088728199905026, 0.23420682176056293, 0.3440323702436847, 1.002854395200596]
+running experiment [micro, 38.88075934100854, 6.87047823248147, 0.02674517279549953, 1.9504956294551703, 0.2562864391578956]
+running experiment [micro, 58.879612256787176, 8.555082372407602, 1.5785553560474939, 1.4493443106895065, 1.3554084591136604]
+running experiment [micro, 57.9338919904557, 3.14918440173529, 0.5732890910885784, 0.46042322890155096, 0.9795590539465145]
+running experiment [micro, 27.134141978537038, 4.2933125081819785, 1.744643262312639, 1.0155627069653732, 0.1945907392465097]
+running experiment [micro, 28.66986880844339, 7.45017884689203, 1.8538002793287074, 0.11899076439351886, 0.5753061470783178]
+running experiment [micro, 23.187952745735394, 6.496811077589156, 1.1403132678304038, 0.5010357769885566, 1.572990643175732]
+running experiment [micro, 50.07549924348374, 4.443872416031433, 0.7856460611807957, 0.257059076780832, 0.6226239843082848]
+running experiment [micro, 25.483231143858678, 8.405609809008887, 0.12872732918672564, 1.355903831199127, 1.6798760452331993]
+
+iteration 0 - best Y = 4.589 (for 0 iterations) | cost = 200 €
+length_scale of T is at upper bound
+length_scale of pH is at upper bound
+length_scale of F2 is at upper bound
+next point: T=35.7 pH=7.57 F1=1.78 F2=0.04 F3=1.98 | acq=4.387e+00 | GP: mu=3.703 sigma=0.342
+measurement: Y = 27.642 -> projected: Y = 18.462
+
+iteration 1 - best Y = 18.462 (for 0 iterations) | cost = 700 €
+length_scale of T is at upper bound
+length_scale of pH is at upper bound
+length_scale of F2 is at upper bound
+next point: T=33.1 pH=7.30 F1=1.93 F2=0.27 F3=2.00 | acq=2.077e+01 | GP: mu=17.810 sigma=1.534
+measurement: Y = 0.230 -> projected: Y = 4.218
+
+iteration 2 - best Y = 18.462 (for 1 iterations) | cost = 710 €
+next point: T=35.5 pH=7.63 F1=1.23 F2=0.09 F3=1.99 | acq=1.719e+01 | GP: mu=12.274 sigma=2.641
+measurement: Y = 0.606 -> projected: Y = 11.097
+
+iteration 3 - best Y = 18.462 (for 2 iterations) | cost = 720 €
+length_scale of T is at upper bound
+next point: T=39.4 pH=7.91 F1=1.71 F2=0.03 F3=1.95 | acq=1.944e+01 | GP: mu=16.627 sigma=1.569
+measurement: Y = 0.214 -> projected: Y = 3.921
+
+iteration 4 - best Y = 18.462 (for 3 iterations) | cost = 730 €
+length_scale of pH is at upper bound
+length_scale of F2 is at upper bound
+length_scale of F3 is at upper bound
+next point: T=35.8 pH=6.31 F1=1.83 F2=0.43 F3=1.62 | acq=1.948e+01 | GP: mu=17.476 sigma=1.166
+measurement: Y = 0.233 -> projected: Y = 4.269
+
+iteration 5 - best Y = 18.462 (for 4 iterations) | cost = 740 €
+length_scale of T is at lower bound
+length_scale of pH is at lower bound
+length_scale of F1 is at lower bound
+length_scale of F2 is at lower bound
+length_scale of F3 is at lower bound
+next point: T=41.2 pH=8.07 F1=1.33 F2=0.14 F3=0.69 | acq=9.591e+00 | GP: mu=3.905 sigma=3.446
+measurement: Y = 0.127 -> projected: Y = 2.322
+
+iteration 6 - best Y = 18.462 (for 5 iterations) | cost = 750 €
+length_scale of F3 is at upper bound
+next point: T=35.6 pH=7.62 F1=1.95 F2=0.01 F3=1.84 | acq=1.905e+01 | GP: mu=17.317 sigma=1.094
+measurement: Y = 0.445 -> projected: Y = 8.142
+
+iteration 7 - best Y = 18.462 (for 6 iterations) | cost = 760 €
+length_scale of pH is at upper bound
+length_scale of F1 is at upper bound
+next point: T=36.0 pH=7.27 F1=1.53 F2=0.07 F3=1.94 | acq=1.695e+01 | GP: mu=13.859 sigma=2.046
+measurement: Y = 0.370 -> projected: Y = 6.764
+
+iteration 8 - best Y = 18.462 (for 7 iterations) | cost = 770 €
+next point: T=44.8 pH=7.05 F1=0.65 F2=0.45 F3=1.25 | acq=9.001e+00 | GP: mu=4.102 sigma=3.402
+measurement: Y = 0.184 -> projected: Y = 3.363
+
+iteration 9 - best Y = 18.462 (for 8 iterations) | cost = 780 €
+next point: T=47.9 pH=7.58 F1=1.49 F2=0.14 F3=1.97 | acq=1.811e+01 | GP: mu=15.307 sigma=2.043
+measurement: Y = 0.211 -> projected: Y = 3.865
+
+iteration 10 - best Y = 18.462 (for 9 iterations) | cost = 790 €
+length_scale of F1 is at upper bound
+next point: T=36.2 pH=7.83 F1=1.21 F2=0.05 F3=1.99 | acq=1.225e+01 | GP: mu=8.755 sigma=2.691
+measurement: Y = 0.786 -> projected: Y = 14.386
+
+iteration 11 - best Y = 18.462 (for 10 iterations) | cost = 800 €
+next point: T=36.5 pH=8.79 F1=1.33 F2=0.05 F3=1.82 | acq=1.232e+01 | GP: mu=8.081 sigma=3.445
+measurement: Y = 0.271 -> projected: Y = 4.962
+
+iteration 12 - best Y = 18.462 (for 11 iterations) | cost = 810 €
+length_scale of pH is at upper bound
+next point: T=35.1 pH=9.38 F1=1.37 F2=0.01 F3=1.97 | acq=1.495e+01 | GP: mu=12.146 sigma=2.415
+measurement: Y = 0.208 -> projected: Y = 3.799
+
+iteration 13 - best Y = 18.462 (for 12 iterations) | cost = 820 €
+length_scale of F1 is at upper bound
+next point: T=35.6 pH=7.82 F1=1.80 F2=0.02 F3=1.95 | acq=1.535e+01 | GP: mu=13.149 sigma=2.015
+measurement: Y = 0.560 -> projected: Y = 10.258
+
+iteration 14 - best Y = 18.462 (for 13 iterations) | cost = 830 €
+length_scale of pH is at upper bound
+length_scale of F2 is at upper bound
+next point: T=36.1 pH=7.54 F1=1.75 F2=0.97 F3=1.98 | acq=1.670e+01 | GP: mu=14.239 sigma=2.412
+measurement: Y = 0.764 -> projected: Y = 13.991
+
+iteration 15 - best Y = 18.462 (for 14 iterations) | cost = 840 €
+length_scale of T is at lower bound
+length_scale of pH is at lower bound
+length_scale of F1 is at lower bound
+length_scale of F2 is at lower bound
+length_scale of F3 is at lower bound
+next point: T=55.3 pH=9.00 F1=1.77 F2=1.23 F3=0.15 | acq=8.592e+00 | GP: mu=4.842 sigma=3.947
+measurement: Y = 0.130 -> projected: Y = 2.384
+
+iteration 16 - best Y = 18.462 (for 15 iterations) | cost = 850 €
+next point: T=35.4 pH=7.50 F1=1.04 F2=0.09 F3=1.78 | acq=8.318e+00 | GP: mu=4.875 sigma=3.912
+measurement: Y = 0.417 -> projected: Y = 7.629
+
+iteration 17 - best Y = 18.462 (for 16 iterations) | cost = 860 €
+next point: T=36.0 pH=8.41 F1=1.80 F2=0.24 F3=1.97 | acq=1.379e+01 | GP: mu=11.812 sigma=2.440
+  [rate-limited, sleeping 1.0s]
+  [rate-limited, sleeping 2.5s]
+  [rate-limited, sleeping 6.2s]
+  [rate-limited, sleeping 15.6s]
+  [rate-limited, sleeping 39.1s]
+measurement: Y = 0.850 -> projected: Y = 15.566
+
+iteration 18 - best Y = 18.462 (for 17 iterations) | cost = 870 €
+next point: T=38.5 pH=7.58 F1=1.75 F2=0.04 F3=1.92 | acq=8.621e+00 | GP: mu=5.515 sigma=4.197
+measurement: Y = 0.252 -> projected: Y = 4.606
+
+iteration 19 - best Y = 18.462 (for 18 iterations) | cost = 880 €
+length_scale of pH is at upper bound
+next point: T=35.8 pH=7.31 F1=1.55 F2=0.80 F3=1.99 | acq=1.724e+01 | GP: mu=16.414 sigma=1.225
+measurement: Y = 0.503 -> projected: Y = 9.213
+
+iteration 20 - best Y = 18.462 (for 19 iterations) | cost = 890 €
+next point: T=36.2 pH=8.48 F1=1.94 F2=0.51 F3=1.99 | acq=1.519e+01 | GP: mu=13.633 sigma=2.587
+measurement: Y = 0.770 -> projected: Y = 14.093
+
+iteration 21 - best Y = 18.462 (for 20 iterations) | cost = 900 €
+length_scale of pH is at upper bound
+next point: T=36.1 pH=5.81 F1=1.79 F2=0.55 F3=1.98 | acq=1.673e+01 | GP: mu=16.007 sigma=1.360
+measurement: Y = 0.322 -> projected: Y = 5.901
+
+iteration 22 - best Y = 18.462 (for 21 iterations) | cost = 910 €
+next point: T=36.4 pH=8.47 F1=1.49 F2=0.10 F3=1.99 | acq=1.501e+01 | GP: mu=14.245 sigma=1.669
+measurement: Y = 0.541 -> projected: Y = 9.911
+
+iteration 23 - best Y = 18.462 (for 22 iterations) | cost = 920 €
+next point: T=36.0 pH=8.59 F1=1.62 F2=0.07 F3=1.98 | acq=1.567e+01 | GP: mu=14.984 sigma=1.747
+measurement: Y = 0.477 -> projected: Y = 8.739
+
+iteration 24 - best Y = 18.462 (for 23 iterations) | cost = 930 €
+next point: T=36.3 pH=7.32 F1=1.88 F2=0.96 F3=1.97 | acq=1.286e+01 | GP: mu=12.158 sigma=2.203
+measurement: Y = 0.526 -> projected: Y = 9.622
+
+iteration 25 - best Y = 18.462 (for 24 iterations) | cost = 940 €
+next point: T=36.5 pH=7.72 F1=1.93 F2=0.12 F3=1.98 | acq=1.999e+01 | GP: mu=19.550 sigma=1.743
+measurement: Y = 0.686 -> projected: Y = 12.555
+
+iteration 26 - best Y = 18.462 (for 25 iterations) | cost = 950 €
+next point: T=36.1 pH=7.66 F1=1.67 F2=0.39 F3=1.98 | acq=1.415e+01 | GP: mu=13.916 sigma=1.325
+measurement: Y = 0.868 -> projected: Y = 15.880
+
+iteration 27 - best Y = 18.462 (for 26 iterations) | cost = 960 €
+next point: T=35.7 pH=8.24 F1=1.88 F2=0.12 F3=1.96 | acq=1.316e+01 | GP: mu=12.895 sigma=2.426
+measurement: Y = 1.017 -> projected: Y = 18.614
+
+iteration 28 - best Y = 18.614 (for 0 iterations) | cost = 970 €
+next point: T=35.8 pH=8.17 F1=1.55 F2=0.75 F3=1.99 | acq=6.529e+00 | GP: mu=6.337 sigma=4.796
+measurement: Y = 1.219 -> projected: Y = 22.311
+
+iteration 29 - best Y = 22.311 (for 0 iterations) | cost = 980 €
+next point: T=36.5 pH=8.43 F1=0.91 F2=0.28 F3=1.96 | acq=6.508e+00 | GP: mu=6.666 sigma=5.256
+measurement: Y = 0.600 -> projected: Y = 10.980
+
+iteration 30 - best Y = 22.311 (for 1 iterations) | cost = 990 €
+next point: T=36.0 pH=7.25 F1=1.58 F2=0.14 F3=1.93 | acq=6.227e+00 | GP: mu=6.750 sigma=5.226
+measurement: Y = 0.459 -> projected: Y = 8.398
+
+iteration 31 - best Y = 22.311 (for 2 iterations) | cost = 1000 €
+length_scale of F2 is at upper bound
+next point: T=35.3 pH=8.00 F1=1.94 F2=0.52 F3=1.98 | acq=2.044e+01 | GP: mu=20.719 sigma=2.797
+measurement: Y = 1.036 -> projected: Y = 18.970
+
+iteration 32 - best Y = 22.311 (for 3 iterations) | cost = 1010 €
+length_scale of F2 is at upper bound
+next point: T=35.1 pH=8.10 F1=1.73 F2=1.47 F3=1.99 | acq=1.715e+01 | GP: mu=17.421 sigma=2.724
+measurement: Y = 0.893 -> projected: Y = 16.341
+
+iteration 33 - best Y = 22.311 (for 4 iterations) | cost = 1020 €
+length_scale of F2 is at upper bound
+next point: T=35.6 pH=8.19 F1=1.58 F2=0.54 F3=1.97 | acq=2.049e+01 | GP: mu=20.667 sigma=1.797
+measurement: Y = 1.148 -> projected: Y = 21.013
+
+iteration 34 - best Y = 22.311 (for 5 iterations) | cost = 1030 €
+length_scale of F2 is at upper bound
+next point: T=35.9 pH=8.09 F1=1.46 F2=1.43 F3=1.96 | acq=1.496e+01 | GP: mu=15.276 sigma=3.122
+measurement: Y = 1.198 -> projected: Y = 21.931
+
+iteration 35 - best Y = 22.311 (for 6 iterations) | cost = 1040 €
+next point: T=36.2 pH=8.55 F1=1.76 F2=0.88 F3=1.82 | acq=7.110e+00 | GP: mu=7.712 sigma=6.023
+measurement: Y = 0.634 -> projected: Y = 11.611
+
+iteration 36 - best Y = 22.311 (for 7 iterations) | cost = 1050 €
+length_scale of F2 is at upper bound
+next point: T=35.6 pH=7.96 F1=1.79 F2=1.10 F3=1.99 | acq=2.225e+01 | GP: mu=22.420 sigma=1.730
+measurement: Y = 1.096 -> projected: Y = 20.053
+
+iteration 37 - best Y = 22.311 (for 8 iterations) | cost = 1060 €
+next point: T=35.9 pH=8.07 F1=1.81 F2=0.38 F3=2.00 | acq=2.143e+01 | GP: mu=21.617 sigma=1.830
+measurement: Y = 1.322 -> projected: Y = 24.195
+
+iteration 38 - best Y = 24.195 (for 0 iterations) | cost = 1070 €
+length_scale of F2 is at upper bound
+next point: T=36.3 pH=7.97 F1=1.35 F2=1.03 F3=1.97 | acq=1.926e+01 | GP: mu=19.486 sigma=2.225
+measurement: Y = 1.076 -> projected: Y = 19.690
+
+iteration 39 - best Y = 24.195 (for 1 iterations) | cost = 1080 €
+length_scale of F2 is at upper bound
+next point: T=35.7 pH=8.15 F1=1.87 F2=1.59 F3=1.99 | acq=2.001e+01 | GP: mu=20.226 sigma=2.159
+measurement: Y = 1.103 -> projected: Y = 20.188
+
+iteration 40 - best Y = 24.195 (for 2 iterations) | cost = 1090 €
+length_scale of F2 is at upper bound
+next point: T=35.6 pH=8.17 F1=1.40 F2=0.90 F3=1.96 | acq=1.915e+01 | GP: mu=19.311 sigma=1.579
+measurement: Y = 1.078 -> projected: Y = 19.726
+
+iteration 41 - best Y = 24.195 (for 3 iterations) | cost = 1100 €
+length_scale of F2 is at upper bound
+next point: T=36.3 pH=8.33 F1=1.96 F2=1.11 F3=1.99 | acq=1.823e+01 | GP: mu=18.418 sigma=1.920
+measurement: Y = 0.977 -> projected: Y = 17.883
+
+iteration 42 - best Y = 24.195 (for 4 iterations) | cost = 1110 €
+length_scale of F2 is at upper bound
+next point: T=36.5 pH=8.09 F1=1.84 F2=1.15 F3=1.94 | acq=2.040e+01 | GP: mu=20.706 sigma=3.070
+measurement: Y = 0.998 -> projected: Y = 18.269
+
+iteration 43 - best Y = 24.195 (for 5 iterations) | cost = 1120 €
+length_scale of F2 is at upper bound
+next point: T=35.7 pH=7.73 F1=1.74 F2=0.12 F3=1.99 | acq=1.983e+01 | GP: mu=19.949 sigma=1.180
+measurement: Y = 0.858 -> projected: Y = 15.711
+
+iteration 44 - best Y = 24.195 (for 6 iterations) | cost = 1130 €
+length_scale of F2 is at upper bound
+next point: T=36.2 pH=8.13 F1=1.21 F2=0.81 F3=1.99 | acq=2.068e+01 | GP: mu=20.892 sigma=2.079
+measurement: Y = 1.160 -> projected: Y = 21.226
+
+iteration 45 - best Y = 24.195 (for 7 iterations) | cost = 1140 €
+length_scale of F2 is at upper bound
+next point: T=36.2 pH=8.06 F1=1.58 F2=1.52 F3=1.99 | acq=2.258e+01 | GP: mu=22.753 sigma=1.701
+measurement: Y = 1.161 -> projected: Y = 21.241
+
+iteration 46 - best Y = 24.195 (for 8 iterations) | cost = 1150 €
+length_scale of F2 is at upper bound
+next point: T=35.9 pH=8.06 F1=1.41 F2=1.46 F3=1.94 | acq=1.988e+01 | GP: mu=19.990 sigma=1.104
+measurement: Y = 1.145 -> projected: Y = 20.951
+
+iteration 47 - best Y = 24.195 (for 9 iterations) | cost = 1160 €
+next point: T=46.7 pH=8.55 F1=1.68 F2=1.11 F3=1.99 | acq=9.061e+00 | GP: mu=9.775 sigma=7.137
+  [rate-limited, sleeping 1.0s]
+  [rate-limited, sleeping 2.5s]
+  [rate-limited, sleeping 6.2s]
+  [rate-limited, sleeping 15.6s]
+measurement: Y = 0.212 -> projected: Y = 3.878
+
+iteration 48 - best Y = 24.195 (for 10 iterations) | cost = 1170 €
+length_scale of F2 is at upper bound
+next point: T=36.0 pH=8.15 F1=1.39 F2=0.77 F3=1.97 | acq=2.219e+01 | GP: mu=22.250 sigma=0.632
+measurement: Y = 1.234 -> projected: Y = 22.588
+
+iteration 49 - best Y = 24.195 (for 11 iterations) | cost = 1180 €
+length_scale of F2 is at upper bound
+next point: T=36.1 pH=8.21 F1=1.66 F2=1.02 F3=1.97 | acq=2.142e+01 | GP: mu=21.501 sigma=0.858
+measurement: Y = 1.208 -> projected: Y = 22.112
+
+iteration 50 - best Y = 24.195 (for 12 iterations) | cost = 1190 €
+length_scale of F2 is at upper bound
+next point: T=36.0 pH=7.56 F1=1.89 F2=0.29 F3=1.98 | acq=1.812e+01 | GP: mu=18.207 sigma=0.844
+measurement: Y = 0.772 -> projected: Y = 14.137
+
+iteration 51 - best Y = 24.195 (for 13 iterations) | cost = 1200 €
+length_scale of F2 is at upper bound
+next point: T=36.0 pH=7.99 F1=1.63 F2=0.65 F3=1.89 | acq=1.619e+01 | GP: mu=16.458 sigma=2.668
+measurement: Y = 1.234 -> projected: Y = 22.578
+
+iteration 52 - best Y = 24.195 (for 14 iterations) | cost = 1210 €
+length_scale of F2 is at upper bound
+next point: T=36.4 pH=8.11 F1=1.61 F2=0.55 F3=1.86 | acq=2.090e+01 | GP: mu=21.150 sigma=2.504
+measurement: Y = 0.978 -> projected: Y = 17.900
+
+iteration 53 - best Y = 24.195 (for 15 iterations) | cost = 1220 €
+length_scale of F1 is at upper bound
+next point: T=35.9 pH=8.07 F1=1.26 F2=0.88 F3=1.96 | acq=2.205e+01 | GP: mu=22.149 sigma=0.967
+measurement: Y = 1.178 -> projected: Y = 21.559
+
+iteration 54 - best Y = 24.195 (for 16 iterations) | cost = 1230 €
+length_scale of F2 is at upper bound
+next point: T=36.4 pH=8.15 F1=1.55 F2=0.52 F3=1.96 | acq=2.176e+01 | GP: mu=21.888 sigma=1.248
+measurement: Y = 1.078 -> projected: Y = 19.731
+
+iteration 55 - best Y = 24.195 (for 17 iterations) | cost = 1240 €
+length_scale of F2 is at upper bound
+next point: T=35.8 pH=8.05 F1=1.69 F2=0.52 F3=1.97 | acq=2.420e+01 | GP: mu=24.292 sigma=0.927
+measurement: Y = 1.264 -> projected: Y = 23.131
+
+iteration 56 - best Y = 24.195 (for 18 iterations) | cost = 1250 €
+length_scale of F2 is at upper bound
+next point: T=36.0 pH=8.04 F1=1.89 F2=0.32 F3=1.97 | acq=2.338e+01 | GP: mu=23.462 sigma=0.823
+measurement: Y = 1.366 -> projected: Y = 25.005
+
+iteration 57 - best Y = 25.005 (for 0 iterations) | cost = 1260 €
+length_scale of F2 is at upper bound
+next point: T=35.4 pH=8.13 F1=1.42 F2=0.03 F3=1.98 | acq=1.815e+01 | GP: mu=18.374 sigma=2.252
+measurement: Y = 0.635 -> projected: Y = 11.621
+
+iteration 58 - best Y = 25.005 (for 1 iterations) | cost = 1270 €
+next point: T=36.2 pH=8.15 F1=1.13 F2=1.12 F3=1.93 | acq=2.004e+01 | GP: mu=20.220 sigma=1.839
+measurement: Y = 1.098 -> projected: Y = 20.100
+
+iteration 59 - best Y = 25.005 (for 2 iterations) | cost = 1280 €
+next point: T=35.2 pH=8.10 F1=1.93 F2=0.58 F3=1.99 | acq=2.011e+01 | GP: mu=20.275 sigma=1.636
+measurement: Y = 0.953 -> projected: Y = 17.449
+
+iteration 60 - best Y = 25.005 (for 3 iterations) | cost = 1290 €
+next point: T=36.1 pH=8.10 F1=1.35 F2=0.69 F3=1.96 | acq=2.266e+01 | GP: mu=22.724 sigma=0.678
+measurement: Y = 1.235 -> projected: Y = 22.608
+
+iteration 61 - best Y = 25.005 (for 4 iterations) | cost = 1300 €
+next point: T=35.8 pH=8.28 F1=1.81 F2=0.48 F3=1.90 | acq=2.010e+01 | GP: mu=20.293 sigma=1.981
+measurement: Y = 1.117 -> projected: Y = 20.442
+
+iteration 62 - best Y = 25.005 (for 5 iterations) | cost = 1310 €
+next point: T=36.0 pH=8.15 F1=1.85 F2=1.27 F3=1.97 | acq=2.262e+01 | GP: mu=22.732 sigma=1.080
+measurement: Y = 1.239 -> projected: Y = 22.683
+
+iteration 63 - best Y = 25.005 (for 6 iterations) | cost = 1320 €
+next point: T=35.4 pH=8.02 F1=1.95 F2=1.52 F3=1.91 | acq=1.998e+01 | GP: mu=20.242 sigma=2.650
+measurement: Y = 1.015 -> projected: Y = 18.571
+
+iteration 64 - best Y = 25.005 (for 7 iterations) | cost = 1330 €
+next point: T=35.6 pH=8.13 F1=1.63 F2=1.25 F3=1.97 | acq=2.130e+01 | GP: mu=21.360 sigma=0.605
+measurement: Y = 1.116 -> projected: Y = 20.425
+
+iteration 65 - best Y = 25.005 (for 8 iterations) | cost = 1340 €
+next point: T=36.0 pH=8.10 F1=1.90 F2=0.83 F3=1.99 | acq=2.510e+01 | GP: mu=25.206 sigma=1.061
+measurement: Y = 1.267 -> projected: Y = 23.195
+
+iteration 66 - best Y = 25.005 (for 9 iterations) | cost = 1350 €
+length_scale of F1 is at upper bound
+next point: T=35.8 pH=7.95 F1=1.81 F2=1.06 F3=1.92 | acq=2.054e+01 | GP: mu=20.691 sigma=1.477
+measurement: Y = 1.146 -> projected: Y = 20.968
+
+iteration 67 - best Y = 25.005 (for 10 iterations) | cost = 1360 €
+length_scale of F1 is at upper bound
+next point: T=36.1 pH=8.09 F1=1.93 F2=0.30 F3=1.99 | acq=2.419e+01 | GP: mu=24.259 sigma=0.669
+measurement: Y = 1.330 -> projected: Y = 24.350
+
+iteration 68 - best Y = 25.005 (for 11 iterations) | cost = 1370 €
+length_scale of F1 is at upper bound
+next point: T=36.0 pH=8.13 F1=1.57 F2=1.08 F3=1.89 | acq=2.078e+01 | GP: mu=20.899 sigma=1.182
+measurement: Y = 1.182 -> projected: Y = 21.640
+
+iteration 69 - best Y = 25.005 (for 12 iterations) | cost = 1380 €
+next point: T=36.2 pH=8.08 F1=1.74 F2=0.35 F3=1.86 | acq=2.182e+01 | GP: mu=21.956 sigma=1.312
+measurement: Y = 1.163 -> projected: Y = 21.291
+
+iteration 70 - best Y = 25.005 (for 13 iterations) | cost = 1390 €
+next point: T=36.2 pH=8.13 F1=1.42 F2=0.42 F3=1.88 | acq=2.037e+01 | GP: mu=20.468 sigma=0.974
+measurement: Y = 1.167 -> projected: Y = 21.354
+
+iteration 71 - best Y = 25.005 (for 14 iterations) | cost = 1400 €
+length_scale of F1 is at upper bound
+next point: T=35.9 pH=8.06 F1=1.18 F2=0.55 F3=1.92 | acq=2.087e+01 | GP: mu=20.956 sigma=0.898
+measurement: Y = 1.167 -> projected: Y = 21.363
+
+iteration 72 - best Y = 25.005 (for 15 iterations) | cost = 1410 €
+length_scale of F1 is at upper bound
+next point: T=36.3 pH=7.92 F1=1.85 F2=0.26 F3=1.94 | acq=2.096e+01 | GP: mu=21.104 sigma=1.411
+measurement: Y = 1.113 -> projected: Y = 20.364
+
+iteration 73 - best Y = 25.005 (for 16 iterations) | cost = 1420 €
+length_scale of F1 is at upper bound
+next point: T=36.1 pH=8.10 F1=1.71 F2=0.45 F3=1.83 | acq=2.124e+01 | GP: mu=21.305 sigma=0.643
+measurement: Y = 1.199 -> projected: Y = 21.936
+
+iteration 74 - best Y = 25.005 (for 17 iterations) | cost = 1430 €
+length_scale of F1 is at upper bound
+next point: T=36.2 pH=7.94 F1=1.36 F2=0.62 F3=1.91 | acq=2.071e+01 | GP: mu=20.801 sigma=0.868
+measurement: Y = 1.111 -> projected: Y = 20.339
+
+iteration 75 - best Y = 25.005 (for 18 iterations) | cost = 1440 €
+length_scale of F1 is at upper bound
+next point: T=36.3 pH=7.88 F1=1.87 F2=0.77 F3=1.94 | acq=2.029e+01 | GP: mu=20.446 sigma=1.587
+measurement: Y = 1.057 -> projected: Y = 19.351
+
+iteration 76 - best Y = 25.005 (for 19 iterations) | cost = 1450 €
+length_scale of F1 is at upper bound
+next point: T=36.0 pH=7.88 F1=1.72 F2=0.78 F3=1.96 | acq=2.137e+01 | GP: mu=21.460 sigma=0.936
+measurement: Y = 1.172 -> projected: Y = 21.453
+
+iteration 77 - best Y = 25.005 (for 20 iterations) | cost = 1460 €
+length_scale of F1 is at upper bound
+next point: T=36.1 pH=8.13 F1=1.92 F2=0.49 F3=1.99 | acq=2.408e+01 | GP: mu=24.126 sigma=0.496
+  [rate-limited, sleeping 1.0s]
+  [rate-limited, sleeping 2.5s]
+  [rate-limited, sleeping 6.2s]
+  [rate-limited, sleeping 15.6s]
+measurement: Y = 34.006 -> projected: Y = 22.712
+
+iteration 78 - best Y = 25.005 (for 21 iterations) | cost = 1960 €
+next point: T=35.8 pH=8.09 F1=1.78 F2=1.56 F3=1.89 | acq=2.006e+01 | GP: mu=20.175 sigma=1.109
+measurement: Y = 1.150 -> projected: Y = 21.040
+
+iteration 79 - best Y = 25.005 (for 22 iterations) | cost = 1970 €
+next point: T=36.1 pH=8.12 F1=1.30 F2=0.37 F3=1.86 | acq=2.116e+01 | GP: mu=21.219 sigma=0.570
+measurement: Y = 1.163 -> projected: Y = 21.287
+
+iteration 80 - best Y = 25.005 (for 23 iterations) | cost = 1980 €
+next point: T=36.0 pH=8.18 F1=1.87 F2=0.20 F3=1.83 | acq=1.990e+01 | GP: mu=20.031 sigma=1.337
+measurement: Y = 1.107 -> projected: Y = 20.254
+
+iteration 81 - best Y = 25.005 (for 24 iterations) | cost = 1990 €
+next point: T=35.8 pH=8.03 F1=1.90 F2=0.96 F3=1.88 | acq=2.203e+01 | GP: mu=22.116 sigma=0.827
+measurement: Y = 1.198 -> projected: Y = 21.921
+
+iteration 82 - best Y = 25.005 (for 25 iterations) | cost = 2000 €
+next point: T=35.8 pH=8.17 F1=1.65 F2=0.69 F3=1.91 | acq=2.226e+01 | GP: mu=22.308 sigma=0.443
+measurement: Y = 30.875 -> projected: Y = 20.621
+
+iteration 83 - best Y = 25.005 (for 26 iterations) | cost = 2500 €
+length_scale of F1 is at upper bound
+next point: T=35.9 pH=8.04 F1=1.73 F2=1.35 F3=1.68 | acq=2.036e+01 | GP: mu=20.741 sigma=3.797
+measurement: Y = 1.006 -> projected: Y = 18.419
+
+iteration 84 - best Y = 25.005 (for 27 iterations) | cost = 2510 €
+next point: T=38.2 pH=8.30 F1=1.66 F2=1.46 F3=1.98 | acq=2.836e+01 | GP: mu=29.371 sigma=10.156
+measurement: Y = 0.201 -> projected: Y = 3.675
+
+iteration 85 - best Y = 25.005 (for 28 iterations) | cost = 2520 €
+next point: T=36.3 pH=8.51 F1=1.78 F2=0.22 F3=1.90 | acq=1.262e+01 | GP: mu=13.418 sigma=7.952
+measurement: Y = 0.584 -> projected: Y = 10.689
+
+iteration 86 - best Y = 25.005 (for 29 iterations) | cost = 2530 €
+length_scale of F1 is at upper bound
+next point: T=36.1 pH=7.99 F1=1.89 F2=0.09 F3=1.95 | acq=2.212e+01 | GP: mu=22.208 sigma=0.910
+measurement: Y = 1.057 -> projected: Y = 19.344
+
+iteration 87 - best Y = 25.005 (for 30 iterations) | cost = 2540 €
+length_scale of F1 is at upper bound
+next point: T=35.9 pH=8.16 F1=1.55 F2=0.50 F3=1.82 | acq=2.101e+01 | GP: mu=21.075 sigma=0.678
+
+Best point on pilot scale: T=36.0 pH=8.04 F1=1.89 F2=0.32 F3=1.97 | Y = 23.213 | cost = 2540

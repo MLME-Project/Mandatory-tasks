@@ -2,6 +2,7 @@ import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 import numpy as np
+import argparse
 from scipy.stats import norm, qmc
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, ConstantKernel, WhiteKernel
@@ -39,6 +40,17 @@ def sampleLatinHyperCube(n_samples, scale, T_Bounds, pH_Bounds, F1_Bounds, F2_Bo
         result = client.run(scale, T, pH, F1, F2, F3)
         appendToCSV(fileName, scale, T, pH, F1, F2, F3, result)
 
+
+def sampleRandomSampling(n_samples, scale, T_Bounds, pH_Bounds, F1_Bounds, F2_Bounds, F3_Bounds, client, fileName):
+    for _ in range(n_samples):
+        T = np.random.uniform(*T_Bounds)
+        pH = np.random.uniform(*pH_Bounds)
+        F1 = np.random.uniform(*F1_Bounds)
+        F2 = np.random.uniform(*F2_Bounds)
+        F3 = np.random.uniform(*F3_Bounds)
+        print(f"running experiment [{scale}, {T}, {pH}, {F1}, {F2}, {F3}]")
+        result = client.run(scale, T, pH, F1, F2, F3)
+        appendToCSV(fileName, scale, T, pH, F1, F2, F3, result)
 
 
 def setupAndFitPipeline(X, y, includeWhiteKernel=True, var=None):
@@ -119,20 +131,56 @@ def upperConfidenceBound(X, pipeline, kappa=2.0):
     return mu + kappa * sigma
 
 
+def predictedImprovement(X, pipeline, y_best):
+    """PI(X) = max(mu(X) - y_best, 0)."""
+    mu, _ = pipeline.predict(X, return_std=True)
+    return np.maximum(mu - y_best, 0.0)
+
+
+
 
 if __name__ == "__main__":
     # np.random.seed(67)
+    parser = argparse.ArgumentParser(
+        description='Run Task03 Bayesian optimization with selectable acquisition functions.'
+    )
+    parser.add_argument('--acq', choices=['ei', 'ucb', 'pi'], default='ucb',
+                        help="Acquisition function: 'ei', 'ucb', or 'pi' (predicted improvement)")
+    parser.add_argument('--run-id', default='10', help='Run identifier for output filename')
+    parser.add_argument('--patience', type=int, default=30,
+                        help='Number of iterations without improvement to stop')
+    parser.add_argument('--init-method', choices=['corners', 'lhc', 'random'], default='lhc',
+                        help='Initial sampling method for warm-start data')
+    parser.add_argument('--init-samples', type=int, default=20,
+                        help='Number of initial samples for Latin Hypercube or random sampling')
+    parser.add_argument('--budget', type=float, default=1e6,
+                        help='Total budget in EUR')
+    parser.add_argument('--filename', type=str, default=None,
+                        help='Optional explicit output CSV filename')
+    args = parser.parse_args()
 
     # setup experiment
-    BUDGET = 1e6 #15000 # stops iteration before a cost limit is reached
-    ACQ_FUN = 'ucb' # acquisition function: 'ei' (expected improvement) or 'ucb' (upper confidence bound)
-    ACQ_FUN_VAR_MAX = 2.0 # dynamic scaling of the free variable of the acquisition function
-    ACQ_FUN_VAR_MIN = -0.1
-    ACQ_FUN_VAR_DECAY = 30  # iterations over which MAX -> MIN linearly decays, then holds at MIN
-    PATIENCE = 30 # stops iteration after this number of iterations without finding a better measurement
-    LHC_SAMPLES = 20
-    RUN_ID = '10'
-    FILENAME = f'Task03/data_{ACQ_FUN}_param02_patience{PATIENCE}_lhc{LHC_SAMPLES}_final_{RUN_ID}.csv'
+    BUDGET = args.budget
+    ACQ_FUN = args.acq
+    INIT_METHOD = args.init_method
+    if ACQ_FUN == 'ucb':
+        ACQ_FUN_VAR_MAX = 2.0
+        ACQ_FUN_VAR_MIN = -0.1
+        ACQ_FUN_VAR_DECAY = 30
+    elif ACQ_FUN == 'ei':
+        ACQ_FUN_VAR_MAX = 0.1
+        ACQ_FUN_VAR_MIN = 0.01
+        ACQ_FUN_VAR_DECAY = 30
+    elif ACQ_FUN == 'pi':
+        ACQ_FUN_VAR_MAX = 0.1
+        ACQ_FUN_VAR_MIN = 0.01
+        ACQ_FUN_VAR_DECAY = 30
+    else:
+        raise NotImplementedError(f"Unknown acquisition function: {ACQ_FUN}")
+    PATIENCE = args.patience
+    LHC_SAMPLES = args.init_samples
+    RUN_ID = args.run_id
+    FILENAME = args.filename or f'Task03/data_{ACQ_FUN}_{INIT_METHOD}_param02_patience{PATIENCE}_lhc{LHC_SAMPLES}_final_{RUN_ID}.csv'
     
     # setup client
     client = BioreactorClient()
@@ -140,27 +188,43 @@ if __name__ == "__main__":
 
     #get initial data
     if not os.path.exists(FILENAME):
-        # sampleHypercubeCorners(
-        #     scale='micro', 
-        #     T_Bounds=T_BOUNDS, 
-        #     pH_Bounds=pH_BOUNDS, 
-        #     F1_Bounds=F_BOUNDS, 
-        #     F2_Bounds=F_BOUNDS, 
-        #     F3_Bounds=F_BOUNDS, 
-        #     client=client, 
-        #     fileName=FILENAME
-        #     )
-        sampleLatinHyperCube(
-            n_samples=LHC_SAMPLES,
-            scale='micro', 
-            T_Bounds=T_BOUNDS, 
-            pH_Bounds=pH_BOUNDS, 
-            F1_Bounds=F_BOUNDS, 
-            F2_Bounds=F_BOUNDS, 
-            F3_Bounds=F_BOUNDS, 
-            client=client, 
-            fileName=FILENAME
+        if INIT_METHOD == 'corners':
+            sampleHypercubeCorners(
+                scale='micro', 
+                T_Bounds=T_BOUNDS, 
+                pH_Bounds=pH_BOUNDS, 
+                F1_Bounds=F_BOUNDS, 
+                F2_Bounds=F_BOUNDS, 
+                F3_Bounds=F_BOUNDS, 
+                client=client, 
+                fileName=FILENAME
             )
+        elif INIT_METHOD == 'lhc':
+            sampleLatinHyperCube(
+                n_samples=LHC_SAMPLES,
+                scale='micro', 
+                T_Bounds=T_BOUNDS, 
+                pH_Bounds=pH_BOUNDS, 
+                F1_Bounds=F_BOUNDS, 
+                F2_Bounds=F_BOUNDS, 
+                F3_Bounds=F_BOUNDS, 
+                client=client, 
+                fileName=FILENAME
+            )
+        elif INIT_METHOD == 'random':
+            sampleRandomSampling(
+                n_samples=LHC_SAMPLES,
+                scale='micro', 
+                T_Bounds=T_BOUNDS, 
+                pH_Bounds=pH_BOUNDS, 
+                F1_Bounds=F_BOUNDS, 
+                F2_Bounds=F_BOUNDS, 
+                F3_Bounds=F_BOUNDS, 
+                client=client, 
+                fileName=FILENAME
+            )
+        else:
+            raise NotImplementedError(f"Unknown init method: {INIT_METHOD}")
 
     # main training loop
     iterations_with_unchanged_best = 0
@@ -205,8 +269,13 @@ if __name__ == "__main__":
                 X=X_test, 
                 pipeline=pipe,
                 kappa=ACQ_FUN_VAR)
+        elif ACQ_FUN == 'pi':
+            acq_test = predictedImprovement(
+                X=X_test,
+                pipeline=pipe,
+                y_best=y_best)
         else:
-            raise NotImplementedError()
+            raise NotImplementedError(f"Unknown acquisition function: {ACQ_FUN}")
         acq_max = np.max(acq_test)
         X_opt = X_test[np.argmax(acq_test)]
 
