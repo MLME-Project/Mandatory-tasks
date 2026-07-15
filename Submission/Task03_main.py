@@ -1,13 +1,10 @@
-import sys
 import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 import numpy as np
 from scipy.stats import norm, qmc
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, ConstantKernel, WhiteKernel
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
-from scipy.optimize import minimize
 import warnings
 from sklearn.exceptions import ConvergenceWarning
 from API_Group8 import BioreactorClient
@@ -35,6 +32,19 @@ def sampleLatinHyperCube(n_samples, scale, T_Bounds, pH_Bounds, F1_Bounds, F2_Bo
     scaled_lhc_sample = qmc.scale(lhc_sample, l_bounds=lower_bounds, u_bounds=upper_bounds)
     for recipe in scaled_lhc_sample:
         T, pH, F1, F2, F3 = recipe
+        print(f"running experiment [{scale}, {T}, {pH}, {F1}, {F2}, {F3}]")
+        result = client.run(scale, T, pH, F1, F2, F3)
+        appendToCSV(fileName, scale, T, pH, F1, F2, F3, result)
+
+
+
+def sampleRandomSampling(n_samples, scale, T_Bounds, pH_Bounds, F1_Bounds, F2_Bounds, F3_Bounds, client, fileName):
+    for _ in range(n_samples):
+        T = np.random.uniform(*T_Bounds)
+        pH = np.random.uniform(*pH_Bounds)
+        F1 = np.random.uniform(*F1_Bounds)
+        F2 = np.random.uniform(*F2_Bounds)
+        F3 = np.random.uniform(*F3_Bounds)
         print(f"running experiment [{scale}, {T}, {pH}, {F1}, {F2}, {F3}]")
         result = client.run(scale, T, pH, F1, F2, F3)
         appendToCSV(fileName, scale, T, pH, F1, F2, F3, result)
@@ -119,20 +129,43 @@ def upperConfidenceBound(X, pipeline, kappa=2.0):
     return mu + kappa * sigma
 
 
+def probabilityOfImprovement(X, pipeline, y_best, xi=0.01):
+    """
+    PI(X) = Phi(Z)                                                                \\
+    Z = (mu(X) - y_best - xi) / sigma(X)                                          \\
+    Phi = cumulative distribution function of standard normal distribution        \\
+    mu(X), sigma(X) = pipeline.predict(X, return_std=True)
+
+    Args:
+        X (array): Inputs of shape (n_samples x n_inputs)
+        pipeline (Pipeline): Object on which predict(X) is called; includes the gp
+        y_best (float): Maximum y which improvements are relative to
+        xi (float, optional): Exploration factor. Defaults to 0.01.
+
+    Returns:
+        array: Outputs of shape (n_samples)
+    """
+    mu, sigma = pipeline.predict(X, return_std=True)
+    Z = (mu - y_best - xi) / (sigma + 1e-9)
+    pi = norm.cdf(Z)
+    pi[sigma < 1e-10] = 0.0
+    return pi
+
+
 
 if __name__ == "__main__":
     # np.random.seed(67)
 
     # setup experiment
-    BUDGET = 1e6 #15000 # stops iteration before a cost limit is reached
+    BUDGET = 100000 #15000 # stops iteration before a cost limit is reached
     ACQ_FUN = 'ucb' # acquisition function: 'ei' (expected improvement) or 'ucb' (upper confidence bound)
     ACQ_FUN_VAR_MAX = 2.0 # dynamic scaling of the free variable of the acquisition function
     ACQ_FUN_VAR_MIN = -0.1
     ACQ_FUN_VAR_DECAY = 30  # iterations over which MAX -> MIN linearly decays, then holds at MIN
     PATIENCE = 30 # stops iteration after this number of iterations without finding a better measurement
-    LHC_SAMPLES = 20
-    RUN_ID = '10'
-    FILENAME = f'Task03/data_{ACQ_FUN}_param02_patience{PATIENCE}_lhc{LHC_SAMPLES}_final_{RUN_ID}.csv'
+    INITIAL_SAMPLES = 20
+    RUN_ID = '01' # increment this for every new run
+    FILENAME = f'run{RUN_ID}_{ACQ_FUN}({ACQ_FUN_VAR_MAX} to {ACQ_FUN_VAR_MIN})_patience{PATIENCE}_lhc{INITIAL_SAMPLES}.csv'
     
     # setup client
     client = BioreactorClient()
@@ -151,7 +184,7 @@ if __name__ == "__main__":
         #     fileName=FILENAME
         #     )
         sampleLatinHyperCube(
-            n_samples=LHC_SAMPLES,
+            n_samples=INITIAL_SAMPLES,
             scale='micro', 
             T_Bounds=T_BOUNDS, 
             pH_Bounds=pH_BOUNDS, 
@@ -165,7 +198,7 @@ if __name__ == "__main__":
     # main training loop
     iterations_with_unchanged_best = 0
     y_best = 0
-    BUDGET -= COST['pilot']
+    BUDGET -= COST['pilot'] # for the necessary final pilot evaluation
     for i in range(10000):
         # get data so far
         df = getDataFrameFromCSV(fileName=FILENAME)
@@ -205,6 +238,12 @@ if __name__ == "__main__":
                 X=X_test, 
                 pipeline=pipe,
                 kappa=ACQ_FUN_VAR)
+        elif ACQ_FUN == 'pi':
+            acq_test = probabilityOfImprovement(
+                X=X_test, 
+                pipeline=pipe, 
+                y_best=y_best,
+                xi=ACQ_FUN_VAR)
         else:
             raise NotImplementedError()
         acq_max = np.max(acq_test)
