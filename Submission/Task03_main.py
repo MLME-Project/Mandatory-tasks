@@ -265,14 +265,6 @@ if __name__ == "__main__":
             scale = 'bench'
         else:
             scale = 'micro'
-        
-        # optional: choose scale based on cost and standard deviation
-        # if y_sigma_opt/COST['bench'] < 2 * SCALED_STDS['bench']/COST['pilot']:
-        #     scale = 'pilot'
-        # elif y_sigma_opt/COST['micro'] < 1.5 * SCALED_STDS['micro']/COST['bench']:
-        #     scale = 'bench'
-        # else:
-        #     scale = 'micro'
 
         # stopping criterions
         if iterations_with_unchanged_best >= PATIENCE:
