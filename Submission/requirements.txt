@@ -1,0 +1,5 @@
+numpy>=1.24
+requests>=2.28
+torch>=2.13
+botorch>=0.18
+gpytorch>=1.15
