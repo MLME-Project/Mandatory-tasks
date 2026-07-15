@@ -15,8 +15,7 @@ from typing import Tuple, List, Dict
 from datetime import datetime
 import sys
 
-# Add parent directory to path to import API_Group8
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 
 # BoTorch imports
 import botorch
@@ -30,8 +29,8 @@ import gpytorch
 # Suppress warnings for cleaner output
 warnings.filterwarnings('ignore')
 
-# Import the API module
-from API_Group8 import BioreactorClient
+#Access to the helper function 
+from _helper import BioreactorClient
 
 ##====================================================================================
 ## CENTRALIZED HYPERPARAMETER DEFINITIONS
@@ -94,7 +93,7 @@ EXTRAPOLATION_FACTOR = 1.1         # Multiplikator auf die mittlere Steigung
 # Candidates evaluated per acquisition function call
 N_CANDIDATES = 10000                # NEU: Erhöht von 4000 auf 10000 für feinere interne Suche
 # ==================== ACQUISITION FUNCTION SETTINGS ====================
-ACQUISITION_BETA = 0.5              # Temperature for expected improvement (higher = more explorative)
+ACQUISITION_BETA = 0.6              # Temperature for expected improvement (higher = more explorative)
 
 # ==================== COST-AWARE SAMPLING STRATEGY ====================
 COST_SCALING_FACTOR = 2.1       # Scaling factor for cost-aware weighting
@@ -193,10 +192,12 @@ logger = ExperimentLogger()
 ##====================================================================================
 ## BIOREACTOR API CLIENT
 ##====================================================================================
+USER = "group08"
+PASSWORD = "4dv1m-vppbi-fa17y"
 
 print("\n[INITIALIZING] Connecting to Bioreactor API...")
 bio_client = BioreactorClient()
-bio_client.login()
+bio_client.login(USER, PASSWORD)
 print("[SUCCESS] Connected and authenticated to Bioreactor API.\n")
 
 ##====================================================================================
