@@ -10,7 +10,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 # Importiere dein bestehendes BO-Skript (ohne die .py Endung)
 import bo_loopv6
 
-def run_multiple_bo(num_runs: int = 10, output_excel: str = "bo_10_runs_summary"):
+def run_multiple_bo(num_runs: int = 5, output_excel: str = "bo_10_runs_summary"):
     """
     Führt den BO-Loop mehrfach aus und speichert eine Zusammenfassung in Excel.
     """
@@ -84,4 +84,4 @@ def run_multiple_bo(num_runs: int = 10, output_excel: str = "bo_10_runs_summary"
 
 if __name__ == '__main__':
     # Startet den Loop 10 Mal
-    run_multiple_bo(num_runs=10)
+    run_multiple_bo(num_runs=5)
