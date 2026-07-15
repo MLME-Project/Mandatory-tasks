@@ -90,7 +90,6 @@ rpds-py==0.27.0
 scikit-learn==1.6.1
 scipy==1.13.1
 Send2Trash==1.8.3
-setuptools==72.1.0
 simplejson==4.1.1
 sip==6.12.0
 six==1.17.0
