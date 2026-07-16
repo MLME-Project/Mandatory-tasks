@@ -72,8 +72,8 @@ BASELINE_PARAMS = {
 # ==================== BO LOOP HYPERPARAMETERS ====================
 # Initial samples per fidelity level (Step 1, 2, 3)
 INITIAL_SAMPLES = {
-    'micro': 3,                   # Initial micro scale samples
-    'bench': 3,                   # NEU: Zwingt das Modell, Bench-Daten zu sammeln (vorher 0)
+    'micro': 15,                   # Initial micro scale samples
+    'bench': 0,                   # NEU: Zwingt das Modell, Bench-Daten zu sammeln (vorher 0)
     'pilot': 0,                   # Initial pilot scale samples (use for validation only)
 }
 
@@ -94,10 +94,10 @@ EXTRAPOLATION_FACTOR = 1.1         # Multiplikator auf die mittlere Steigung
 # Candidates evaluated per acquisition function call
 N_CANDIDATES = 10000                # NEU: Erhöht von 4000 auf 10000 für feinere interne Suche
 # ==================== ACQUISITION FUNCTION SETTINGS ====================
-ACQUISITION_BETA = 0.5              # Temperature for expected improvement (higher = more explorative)
+ACQUISITION_BETA = 0.3              # Temperature for expected improvement (higher = more explorative)
 
 # ==================== COST-AWARE SAMPLING STRATEGY ====================
-COST_SCALING_FACTOR = 2.1       # Scaling factor for cost-aware weighting
+COST_SCALING_FACTOR = 0.1       # Scaling factor for cost-aware weighting
 
 print(f"\n[BUDGET]")
 print(f"  Total Budget:           {TOTAL_BUDGET:,} EUR")
